@@ -378,6 +378,27 @@
         "gpuModel": "Trainium",
         "pricePerHour": 24.73
       }
+    ],
+    "cpu": [
+      { "type": "ml.t3.medium",     "vcpus": 2,  "pricePerHour": 0.0582 },
+      { "type": "ml.t3.large",      "vcpus": 2,  "pricePerHour": 0.1165 },
+      { "type": "ml.t3.xlarge",     "vcpus": 4,  "pricePerHour": 0.233 },
+      { "type": "ml.t3.2xlarge",    "vcpus": 8,  "pricePerHour": 0.466 },
+      { "type": "ml.m5.large",      "vcpus": 2,  "pricePerHour": 0.115 },
+      { "type": "ml.m5.xlarge",     "vcpus": 4,  "pricePerHour": 0.23 },
+      { "type": "ml.m5.2xlarge",    "vcpus": 8,  "pricePerHour": 0.461 },
+      { "type": "ml.m5.4xlarge",    "vcpus": 16, "pricePerHour": 0.922 },
+      { "type": "ml.m5.12xlarge",   "vcpus": 48, "pricePerHour": 2.765 },
+      { "type": "ml.m5.24xlarge",   "vcpus": 96, "pricePerHour": 5.531 },
+      { "type": "ml.c5.xlarge",     "vcpus": 4,  "pricePerHour": 0.204 },
+      { "type": "ml.c5.2xlarge",    "vcpus": 8,  "pricePerHour": 0.408 },
+      { "type": "ml.c5.4xlarge",    "vcpus": 16, "pricePerHour": 0.816 },
+      { "type": "ml.c5.9xlarge",    "vcpus": 36, "pricePerHour": 1.836 },
+      { "type": "ml.c5.18xlarge",   "vcpus": 72, "pricePerHour": 3.672 },
+      { "type": "ml.r5.large",      "vcpus": 2,  "pricePerHour": 0.151 },
+      { "type": "ml.r5.xlarge",     "vcpus": 4,  "pricePerHour": 0.302 },
+      { "type": "ml.r5.2xlarge",    "vcpus": 8,  "pricePerHour": 0.605 },
+      { "type": "ml.r5.4xlarge",    "vcpus": 16, "pricePerHour": 1.21 }
     ]
   }
 }

@@ -208,6 +208,29 @@ details summary {
 .verdict.openshift { background: #ffecec; border-left: 4px solid var(--accent); }
 .verdict.tie { background: #eef2ff; border-left: 4px solid #5c7cfa; }
 
+.breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.88rem;
+}
+
+.breakdown-grid ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.breakdown-grid li {
+  margin-bottom: 0.15rem;
+}
+
+.breakdown-grid em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 0.8rem;
+}
+
 .chart-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

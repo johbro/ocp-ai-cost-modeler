@@ -5,6 +5,7 @@ const state = {
   prices: null,
   avgTrain: 0,
   avgInf: 0,
+  avgCpu: 0,
   charts: { monthly: null, tco: null, sweep: null },
 };
 
@@ -20,9 +21,16 @@ function average(values) {
 }
 
 function computeAverages(prices) {
-  const perGpuTrain = prices.instances.training.map((i) => i.pricePerHour / i.gpus);
-  const perGpuInf = prices.instances.inference.map((i) => i.pricePerHour / i.gpus);
-  return { avgTrain: average(perGpuTrain), avgInf: average(perGpuInf) };
+  const gpuOnly = (arr) => arr.filter((i) => i.gpus && i.gpus > 0);
+  const perGpuTrain = gpuOnly(prices.instances.training).map((i) => i.pricePerHour / i.gpus);
+  const perGpuInf = gpuOnly(prices.instances.inference).map((i) => i.pricePerHour / i.gpus);
+  const cpuList = prices.instances.cpu || [];
+  const perVcpu = cpuList.filter((i) => i.vcpus && i.vcpus > 0).map((i) => i.pricePerHour / i.vcpus);
+  return {
+    avgTrain: average(perGpuTrain),
+    avgInf: average(perGpuInf),
+    avgCpu: average(perVcpu),
+  };
 }
 
 function formatMoney(n) {
@@ -37,14 +45,17 @@ function formatMoneyFull(n) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
+const GB_PER_TB = 1000;
+
 function readInputs() {
   const num = (id) => parseFloat(document.getElementById(id).value) || 0;
+  const bool = (id) => document.getElementById(id).checked;
   return {
     trainGpus: num("trainGpus"),
     trainHours: num("trainHours"),
     infGpus: num("infGpus"),
     infHours: num("infHours"),
-    sharedPool: document.getElementById("sharedPool").checked,
+    sharedPool: bool("sharedPool"),
     serverCost: num("serverCost"),
     gpusPerServer: Math.max(1, num("gpusPerServer")),
     amortYears: Math.max(1, num("amortYears")),
@@ -55,13 +66,34 @@ function readInputs() {
     pue: Math.max(1, num("pue")),
     opsPct: num("opsPct"),
     utilPct: Math.max(1, Math.min(100, num("utilPct"))),
+    userCount: num("userCount"),
+    userHours: num("userHours"),
+    smNotebookRate: num("smNotebookRate"),
+    ocpWorkbenchShared: bool("ocpWorkbenchShared"),
+    ocpWorkbenchPerUser: num("ocpWorkbenchPerUser"),
+    storageTb: num("storageTb"),
+    egressTb: num("egressTb"),
+    smStorageRate: num("smStorageRate"),
+    smEgressRate: num("smEgressRate"),
+    ocpStorageRate: num("ocpStorageRate"),
+    ocpEgressRate: num("ocpEgressRate"),
+    cpuCount: num("cpuCount"),
+    cpuHours: num("cpuHours"),
+    ocpCpuShared: bool("ocpCpuShared"),
+    ocpCpuRate: num("ocpCpuRate"),
   };
 }
 
 function computeSageMaker(i, rates) {
   const train = i.trainGpus * i.trainHours * rates.avgTrain;
   const inference = i.infGpus * i.infHours * rates.avgInf;
-  return { train, inference, total: train + inference };
+  const cpu = i.cpuCount * i.cpuHours * rates.avgCpu;
+  const notebooks = i.userCount * i.userHours * i.smNotebookRate;
+  const storage = i.storageTb * GB_PER_TB * i.smStorageRate;
+  const egress = i.egressTb * GB_PER_TB * i.smEgressRate;
+  const gpuCompute = train + inference;
+  const total = gpuCompute + cpu + notebooks + storage + egress;
+  return { train, inference, gpuCompute, cpu, notebooks, storage, egress, total };
 }
 
 function computeOpenShift(i) {
@@ -69,12 +101,19 @@ function computeOpenShift(i) {
     ? Math.max(i.trainGpus, i.infGpus)
     : i.trainGpus + i.infGpus;
 
+  const storage = i.storageTb * i.ocpStorageRate;
+  const egress = i.egressTb * GB_PER_TB * i.ocpEgressRate;
+  const notebooks = i.ocpWorkbenchShared ? 0 : i.userCount * i.ocpWorkbenchPerUser;
+  const cpu = i.ocpCpuShared ? 0 : i.cpuCount * i.cpuHours * i.ocpCpuRate;
+
   if (peakGpus === 0) {
+    const monthly = storage + egress + notebooks + cpu;
     return {
       peakGpus: 0, servers: 0,
-      annual: 0, monthly: 0, tco: 0,
+      annual: monthly * 12, monthly, tco: monthly * 12 * i.amortYears,
       effectivePerGpuHour: 0,
-      breakdown: { hardware: 0, subscriptions: 0, power: 0, ops: 0 },
+      gpuCompute: 0, cpu, notebooks, storage, egress,
+      breakdown: { hardware: 0, subscriptions: 0, power: 0, ops: 0, cpu, notebooks, storage, egress },
     };
   }
 
@@ -85,22 +124,29 @@ function computeOpenShift(i) {
   const powerAnnual = servers * i.kwPerServer * HOURS_PER_YEAR * i.kwhCost * i.pue;
   const opsAnnual = capex * (i.opsPct / 100);
 
-  const annual = hardwareAnnual + subsAnnual + powerAnnual + opsAnnual;
-  const monthly = annual / 12;
+  const gpuComputeAnnual = hardwareAnnual + subsAnnual + powerAnnual + opsAnnual;
+  const gpuCompute = gpuComputeAnnual / 12;
+  const monthly = gpuCompute + cpu + notebooks + storage + egress;
+  const annual = monthly * 12;
   const tco = annual * i.amortYears;
 
   const effectiveGpuHours = peakGpus * HOURS_PER_YEAR * (i.utilPct / 100);
-  const effectivePerGpuHour = effectiveGpuHours > 0 ? annual / effectiveGpuHours : 0;
+  const effectivePerGpuHour = effectiveGpuHours > 0 ? gpuComputeAnnual / effectiveGpuHours : 0;
 
   return {
     peakGpus, servers,
     annual, monthly, tco,
     effectivePerGpuHour,
+    gpuCompute, cpu, notebooks, storage, egress,
     breakdown: {
       hardware: hardwareAnnual / 12,
       subscriptions: subsAnnual / 12,
       power: powerAnnual / 12,
       ops: opsAnnual / 12,
+      cpu,
+      notebooks,
+      storage,
+      egress,
     },
   };
 }
@@ -112,24 +158,26 @@ function destroyChart(key) {
   }
 }
 
+const CATEGORIES = ["GPU compute", "CPU compute", "Workspaces", "Storage", "Egress", "Total"];
+
+function smCategories(sm) {
+  return [sm.gpuCompute, sm.cpu, sm.notebooks, sm.storage, sm.egress, sm.total];
+}
+
+function ocpCategories(ocp) {
+  return [ocp.gpuCompute, ocp.cpu, ocp.notebooks, ocp.storage, ocp.egress, ocp.monthly];
+}
+
 function renderMonthlyChart(sm, ocp) {
   destroyChart("monthly");
   const ctx = document.getElementById("monthlyChart");
   state.charts.monthly = new Chart(ctx, {
     type: "bar",
     data: {
-      labels: ["Training", "Inference", "Total"],
+      labels: CATEGORIES,
       datasets: [
-        {
-          label: "SageMaker",
-          backgroundColor: "#ff9900",
-          data: [sm.train, sm.inference, sm.total],
-        },
-        {
-          label: "OpenShift AI (fixed)",
-          backgroundColor: "#d43b3b",
-          data: [ocp.monthly, ocp.monthly, ocp.monthly],
-        },
+        { label: "SageMaker", backgroundColor: "#ff9900", data: smCategories(sm) },
+        { label: "OpenShift AI", backgroundColor: "#d43b3b", data: ocpCategories(ocp) },
       ],
     },
     options: {
@@ -147,19 +195,22 @@ function renderMonthlyChart(sm, ocp) {
 function renderTcoChart(sm, ocp, years) {
   destroyChart("tco");
   const ctx = document.getElementById("tcoChart");
-  const smTco = sm.total * 12 * years;
+  const months = 12 * years;
+  const smData = smCategories(sm).map((v) => v * months);
+  const ocpData = ocpCategories(ocp).map((v) => v * months);
   state.charts.tco = new Chart(ctx, {
     type: "bar",
     data: {
-      labels: [`${years}-year TCO`],
+      labels: CATEGORIES,
       datasets: [
-        { label: "SageMaker", backgroundColor: "#ff9900", data: [smTco] },
-        { label: "OpenShift AI", backgroundColor: "#d43b3b", data: [ocp.tco] },
+        { label: "SageMaker", backgroundColor: "#ff9900", data: smData },
+        { label: "OpenShift AI", backgroundColor: "#d43b3b", data: ocpData },
       ],
     },
     options: {
       responsive: true,
       plugins: {
+        title: { display: true, text: `${years}-year totals` },
         tooltip: {
           callbacks: { label: (c) => `${c.dataset.label}: ${formatMoneyFull(c.raw)}` },
         },
@@ -169,13 +220,17 @@ function renderTcoChart(sm, ocp, years) {
   });
 }
 
-function renderSweepChart(inputs, rates, ocpMonthly) {
+function renderSweepChart(inputs, rates, sm, ocp) {
   destroyChart("sweep");
   const ctx = document.getElementById("sweepChart");
   const totalGpus = inputs.trainGpus + inputs.infGpus;
   const blendedRate = totalGpus > 0
     ? (inputs.trainGpus * rates.avgTrain + inputs.infGpus * rates.avgInf) / totalGpus
     : 0;
+
+  // Fixed costs that don't scale with GPU-hours — shift both curves up.
+  const smFixed = sm.cpu + sm.notebooks + sm.storage + sm.egress;
+  const ocpFixed = ocp.monthly;
 
   const maxHours = Math.max(HOURS_PER_MONTH, (inputs.trainHours + inputs.infHours) * 1.5, 100);
   const steps = 40;
@@ -185,8 +240,8 @@ function renderSweepChart(inputs, rates, ocpMonthly) {
   for (let s = 0; s <= steps; s++) {
     const h = (maxHours * s) / steps;
     labels.push(Math.round(h));
-    sageLine.push(h * totalGpus * blendedRate);
-    ocpLine.push(ocpMonthly);
+    sageLine.push(smFixed + h * totalGpus * blendedRate);
+    ocpLine.push(ocpFixed);
   }
 
   state.charts.sweep = new Chart(ctx, {
@@ -194,8 +249,8 @@ function renderSweepChart(inputs, rates, ocpMonthly) {
     data: {
       labels,
       datasets: [
-        { label: "SageMaker", borderColor: "#ff9900", backgroundColor: "#ff990033", data: sageLine, tension: 0.1, pointRadius: 0 },
-        { label: "OpenShift AI (fixed)", borderColor: "#d43b3b", backgroundColor: "#d43b3b33", data: ocpLine, tension: 0, pointRadius: 0, borderDash: [6, 4] },
+        { label: "SageMaker (all costs)", borderColor: "#ff9900", backgroundColor: "#ff990033", data: sageLine, tension: 0.1, pointRadius: 0 },
+        { label: "OpenShift AI (all costs, fixed)", borderColor: "#d43b3b", backgroundColor: "#d43b3b33", data: ocpLine, tension: 0, pointRadius: 0, borderDash: [6, 4] },
       ],
     },
     options: {
@@ -221,7 +276,11 @@ function renderSweepChart(inputs, rates, ocpMonthly) {
     note.textContent = "Enter GPU counts to see breakeven.";
     return;
   }
-  const breakevenGpuHours = ocpMonthly / blendedRate;
+  const breakevenGpuHours = (ocpFixed - smFixed) / (totalGpus * blendedRate);
+  if (breakevenGpuHours <= 0) {
+    note.innerHTML = `SageMaker fixed costs already exceed OpenShift AI total — OpenShift AI wins at every GPU-hour count.`;
+    return;
+  }
   const breakevenHoursPerGpu = breakevenGpuHours / totalGpus;
   note.innerHTML =
     `Breakeven: <strong>${Math.round(breakevenGpuHours).toLocaleString()} GPU-hours / month</strong> ` +
@@ -280,13 +339,33 @@ function renderSummary(sm, ocp, inputs, rates) {
     </div>
     <div class="verdict ${verdictClass}">${verdictText}</div>
     <details style="margin-top: 0.75rem;">
-      <summary>OpenShift AI monthly cost breakdown</summary>
-      <ul>
-        <li>Hardware (amortized): ${formatMoneyFull(ocp.breakdown.hardware)}</li>
-        <li>Subscriptions (OCP + OAI): ${formatMoneyFull(ocp.breakdown.subscriptions)}</li>
-        <li>Power + cooling (PUE applied): ${formatMoneyFull(ocp.breakdown.power)}</li>
-        <li>Ops overhead: ${formatMoneyFull(ocp.breakdown.ops)}</li>
-      </ul>
+      <summary>Monthly cost breakdown (both sides)</summary>
+      <div class="breakdown-grid">
+        <div>
+          <strong>SageMaker</strong>
+          <ul>
+            <li>GPU training: ${formatMoneyFull(sm.train)}</li>
+            <li>GPU inference: ${formatMoneyFull(sm.inference)}</li>
+            <li>CPU compute: ${formatMoneyFull(sm.cpu)}</li>
+            <li>Notebook workspaces: ${formatMoneyFull(sm.notebooks)}</li>
+            <li>S3 storage: ${formatMoneyFull(sm.storage)}</li>
+            <li>Data egress: ${formatMoneyFull(sm.egress)}</li>
+          </ul>
+        </div>
+        <div>
+          <strong>OpenShift AI</strong>
+          <ul>
+            <li>GPU cluster hardware (amortized): ${formatMoneyFull(ocp.breakdown.hardware)}</li>
+            <li>Subscriptions (OCP + OAI): ${formatMoneyFull(ocp.breakdown.subscriptions)}</li>
+            <li>Power + cooling (PUE applied): ${formatMoneyFull(ocp.breakdown.power)}</li>
+            <li>Ops overhead: ${formatMoneyFull(ocp.breakdown.ops)}</li>
+            <li>CPU compute: ${formatMoneyFull(ocp.breakdown.cpu)}${inputs.ocpCpuShared ? " <em>(absorbed by cluster)</em>" : ""}</li>
+            <li>Workbench workspaces: ${formatMoneyFull(ocp.breakdown.notebooks)}${inputs.ocpWorkbenchShared ? " <em>(absorbed by cluster)</em>" : ""}</li>
+            <li>Storage: ${formatMoneyFull(ocp.breakdown.storage)}</li>
+            <li>Data egress: ${formatMoneyFull(ocp.breakdown.egress)}</li>
+          </ul>
+        </div>
+      </div>
     </details>
   `;
   document.getElementById("summary").innerHTML = html;
@@ -294,27 +373,40 @@ function renderSummary(sm, ocp, inputs, rates) {
 
 function renderInstanceList(prices) {
   const el = document.getElementById("instanceList");
-  const row = (i) =>
-    `<div class="row"><span>${i.type} · ${i.gpus}× ${i.gpuModel}</span><span>$${i.pricePerHour.toFixed(3)}/hr · $${(i.pricePerHour / i.gpus).toFixed(3)}/GPU-hr</span></div>`;
+  const gpuRow = (i) => {
+    const gpus = i.gpus || 0;
+    const perGpu = gpus > 0 ? `$${(i.pricePerHour / gpus).toFixed(3)}/GPU-hr` : "—";
+    return `<div class="row"><span>${i.type} · ${gpus}× ${i.gpuModel || "?"}</span><span>$${i.pricePerHour.toFixed(3)}/hr · ${perGpu}</span></div>`;
+  };
+  const cpuRow = (i) =>
+    `<div class="row"><span>${i.type} · ${i.vcpus} vCPU</span><span>$${i.pricePerHour.toFixed(3)}/hr · $${(i.pricePerHour / i.vcpus).toFixed(4)}/vCPU-hr</span></div>`;
+  const cpuList = prices.instances.cpu || [];
   el.innerHTML =
-    `<div style="margin-top:0.5rem;color:var(--text)"><strong>Training</strong></div>` +
-    prices.instances.training.map(row).join("") +
-    `<div style="margin-top:0.5rem;color:var(--text)"><strong>Real-time inference</strong></div>` +
-    prices.instances.inference.map(row).join("");
+    `<div style="margin-top:0.5rem;color:var(--text)"><strong>GPU training</strong></div>` +
+    prices.instances.training.map(gpuRow).join("") +
+    `<div style="margin-top:0.5rem;color:var(--text)"><strong>GPU real-time inference</strong></div>` +
+    prices.instances.inference.map(gpuRow).join("") +
+    (cpuList.length
+      ? `<div style="margin-top:0.5rem;color:var(--text)"><strong>CPU instances</strong></div>` +
+        cpuList.map(cpuRow).join("")
+      : "");
 }
 
 function update() {
   const inputs = readInputs();
-  const rates = { avgTrain: state.avgTrain, avgInf: state.avgInf };
+  const rates = { avgTrain: state.avgTrain, avgInf: state.avgInf, avgCpu: state.avgCpu };
   const sm = computeSageMaker(inputs, rates);
   const ocp = computeOpenShift(inputs);
 
   document.getElementById("avgTrainRate").textContent = `$${state.avgTrain.toFixed(3)}/GPU-hr`;
   document.getElementById("avgInfRate").textContent = `$${state.avgInf.toFixed(3)}/GPU-hr`;
+  document.getElementById("avgCpuRate").textContent = state.avgCpu > 0
+    ? `$${state.avgCpu.toFixed(4)}/vCPU-hr`
+    : "—";
 
   renderMonthlyChart(sm, ocp);
   renderTcoChart(sm, ocp, inputs.amortYears);
-  renderSweepChart(inputs, rates, ocp.monthly);
+  renderSweepChart(inputs, rates, sm, ocp);
   renderSummary(sm, ocp, inputs, rates);
 }
 
@@ -331,6 +423,7 @@ async function init() {
     const avgs = computeAverages(state.prices);
     state.avgTrain = avgs.avgTrain;
     state.avgInf = avgs.avgInf;
+    state.avgCpu = avgs.avgCpu;
 
     document.getElementById("dataStamp").textContent =
       `SageMaker pricing snapshot: ${state.prices.lastUpdated} · ${state.prices.source}`;

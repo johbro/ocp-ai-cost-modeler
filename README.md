@@ -8,18 +8,26 @@ Live demo: enable GitHub Pages on this repo (see [Deploy](#deploy)).
 
 ## What it models
 
-| Side | Cost shape | Data source |
+Six cost categories are compared per side:
+
+| Category | SageMaker | OpenShift AI baremetal |
 | --- | --- | --- |
-| **SageMaker** | Linear in GPU-hours: `GPUs × hours × avg $/GPU-hr` | Dated snapshot of AWS list prices in [`data/sagemaker-prices.json`](data/sagemaker-prices.json), refreshable via script |
-| **OpenShift AI baremetal** | **Fixed** — cluster runs 24/7 regardless of usage | Total-cost-of-ownership model built from form inputs (capex amortization + RH subscriptions + power × PUE + ops overhead) |
+| **GPU compute** | `GPUs × hours × avg $/GPU-hr` (training and inference averaged separately from list prices) | Fixed TCO: capex amortization + RH subscriptions + power × PUE + ops overhead |
+| **CPU compute** | `vCPUs × hours × avg $/vCPU-hr` for non-training use cases (processing, batch, CPU inference, ETL) | Absorbed by the main cluster by default, or dedicated `$/vCPU-hr` rate |
+| **Workspaces** | Studio / notebook instance-hours per user | Workbenches; shared with the GPU cluster by default, or `$/user/month` for dedicated nodes |
+| **Storage** | S3 Standard `$/GB-month` | Amortized on-prem storage `$/TB-month` (ODF / Ceph / SAN) |
+| **Egress** | Internet out `$/GB` past free tier | Colo / transit `$/GB` |
 
-The SageMaker side averages **$/GPU-hour across many instance families** rather
-than asking you to pick one SKU. Training and real-time inference rates are
-averaged separately (inference has a hosting markup).
+SageMaker prices come from a **dated snapshot** in
+[`data/sagemaker-prices.json`](data/sagemaker-prices.json), refreshable via
+script. GPU instance prices are averaged across many families (no single SKU
+picker, by design). Non-GPU pricing is averaged across general-purpose,
+compute-optimized, and memory-optimized ML instance families.
 
-Because OpenShift cost is flat and SageMaker cost is linear, the two lines
-cross at a breakeven point — the "Cost vs. monthly GPU-hours" chart shows
-exactly where.
+Because most OpenShift costs are flat (cluster runs 24/7) and SageMaker
+compute is linear in hours, the two total-cost lines cross at a breakeven
+point — the "Cost vs. monthly GPU-hours" chart shows exactly where, with
+fixed auxiliary costs (storage, egress, workspaces) already factored in.
 
 ## Run it locally
 
@@ -68,6 +76,12 @@ The **"Share a single GPU pool"** checkbox controls whether training and
 inference contend for the same cluster (sized to peak) or get dedicated
 capacity (sized to sum).
 
+The **"absorb CPU workloads"** and **"workbenches share the main cluster"**
+checkboxes collapse those categories to $0 marginal on the OpenShift side
+(the assumption being that an 8-GPU node with 96 CPU cores already has
+capacity to spare for non-GPU work). Uncheck them to model dedicated CPU
+worker pools or dedicated notebook nodes.
+
 ## Deploy
 
 This repo is a static site ready for GitHub Pages:
@@ -100,9 +114,14 @@ scripts/refresh-sagemaker-prices.mjs Regenerates the JSON from AWS Pricing API
 - The OpenShift TCO model intentionally excludes one-off costs (initial
   networking, rack installation, staff hiring) and treats ops as a flat
   percentage. That is an approximation.
-- Inference on SageMaker here means **real-time endpoints**. Serverless
-  Inference, Batch Transform, and Asynchronous Inference have different
-  pricing shapes and are not modeled.
+- Inference on SageMaker here means **GPU real-time endpoints**. Serverless
+  Inference and Asynchronous Inference have different pricing shapes and
+  are not modeled as their own category. Batch Transform and Processing
+  jobs roll into the **CPU compute** category via the `$/vCPU-hr` average.
+- Storage modeling is **S3 Standard only** on the AWS side. Intelligent
+  Tiering, Glacier, and EFS are not broken out.
+- Egress is a flat blended rate. Real AWS egress tiers (100 GB free, then
+  steps down at 10 TB / 50 TB / 150 TB) are not modeled.
 - GPU families not in the refresh script's `GPU_META` map appear as
   `gpuModel: "unknown"`; they still contribute to the average using the
   `gpus` count the API reports (or `1` if unspecified), so verify those

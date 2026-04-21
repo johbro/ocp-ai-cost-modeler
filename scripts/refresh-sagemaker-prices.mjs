@@ -23,11 +23,18 @@ const INDEX_URL = `https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/Amazo
 
 // Curated instance families we care about. The API has hundreds of SKUs
 // across notebook/training/processing/endpoint/batch/serverless tiers; we
-// only surface the GPU-bearing ones that users pick for ML.
+// surface the GPU-bearing ones plus common CPU families used for
+// non-training workloads (processing, batch, CPU inference).
 const GPU_FAMILIES = [
   "ml.g5", "ml.g6", "ml.g6e",
   "ml.p4d", "ml.p4de", "ml.p5", "ml.p5e",
   "ml.inf2", "ml.trn1", "ml.trn2",
+];
+
+const CPU_FAMILIES = [
+  "ml.t3", "ml.m5", "ml.m5d", "ml.m6i", "ml.m6in",
+  "ml.c5", "ml.c5d", "ml.c6i", "ml.c6in", "ml.c7i",
+  "ml.r5", "ml.r5d", "ml.r6i",
 ];
 
 // Hardcoded GPU-per-instance map. The Pricing API describes instance
@@ -51,7 +58,12 @@ const GPU_META = {
   "ml.g6.24xlarge":   { gpus: 4, gpuModel: "L4" },
   "ml.g6.48xlarge":   { gpus: 8, gpuModel: "L4" },
   "ml.g6e.xlarge":    { gpus: 1, gpuModel: "L40S" },
+  "ml.g6e.2xlarge":   { gpus: 1, gpuModel: "L40S" },
+  "ml.g6e.4xlarge":   { gpus: 1, gpuModel: "L40S" },
+  "ml.g6e.8xlarge":   { gpus: 1, gpuModel: "L40S" },
+  "ml.g6e.16xlarge":  { gpus: 1, gpuModel: "L40S" },
   "ml.g6e.12xlarge":  { gpus: 4, gpuModel: "L40S" },
+  "ml.g6e.24xlarge":  { gpus: 4, gpuModel: "L40S" },
   "ml.g6e.48xlarge":  { gpus: 8, gpuModel: "L40S" },
   "ml.p4d.24xlarge":  { gpus: 8, gpuModel: "A100-40GB" },
   "ml.p4de.24xlarge": { gpus: 8, gpuModel: "A100-80GB" },
@@ -61,12 +73,30 @@ const GPU_META = {
   "ml.inf2.8xlarge":  { gpus: 1, gpuModel: "Inferentia2" },
   "ml.inf2.24xlarge": { gpus: 6, gpuModel: "Inferentia2" },
   "ml.inf2.48xlarge": { gpus: 12, gpuModel: "Inferentia2" },
+  "ml.trn1.2xlarge":  { gpus: 1,  gpuModel: "Trainium" },
   "ml.trn1.32xlarge": { gpus: 16, gpuModel: "Trainium" },
   "ml.trn2.48xlarge": { gpus: 16, gpuModel: "Trainium2" },
 };
 
 function isGpuFamily(instanceType) {
   return GPU_FAMILIES.some((f) => instanceType && instanceType.startsWith(f + "."));
+}
+
+function isCpuFamily(instanceType) {
+  return CPU_FAMILIES.some((f) => instanceType && instanceType.startsWith(f + "."));
+}
+
+// AWS instance size naming is regular: large = 2 vCPU, xlarge = 4 vCPU,
+// NxlargE = N × 4 vCPU. Older m5.12xlarge = 48, m5.24xlarge = 96 follow the
+// pattern; c5.9xlarge = 36, c5.18xlarge = 72 follow it too.
+function vcpusFromSize(instanceType) {
+  const size = instanceType.split(".").pop();
+  if (size === "medium") return 2;
+  if (size === "large") return 2;
+  if (size === "xlarge") return 4;
+  const m = size.match(/^(\d+)xlarge$/);
+  if (m) return parseInt(m[1], 10) * 4;
+  return null;
 }
 
 async function main() {
@@ -83,20 +113,26 @@ async function main() {
   const products = json.products || {};
   const onDemand = (json.terms && json.terms.OnDemand) || {};
 
-  const byBucket = { training: new Map(), inference: new Map() };
+  const byBucket = { training: new Map(), inference: new Map(), cpu: new Map() };
 
   for (const sku of Object.keys(products)) {
     const p = products[sku];
     const attrs = p.attributes || {};
     const instanceType = attrs.instanceName || attrs.instanceType;
-    if (!instanceType || !isGpuFamily(instanceType)) continue;
+    if (!instanceType) continue;
+    const gpuFam = isGpuFamily(instanceType);
+    const cpuFam = isCpuFamily(instanceType);
+    if (!gpuFam && !cpuFam) continue;
 
-    // Component values vary over time. Treat "Training" / "Hosting" / "Real-Time Inference"
-    // as our two buckets; skip Notebook/Processing/Batch/Serverless.
+    // Component values vary over time. Treat "Training" / "Hosting" /
+    // "Real-Time Inference" as our two GPU buckets; non-training CPU
+    // workloads also come through Processing / Batch / Notebook components
+    // at broadly the same per-vCPU rate, so we keep the lowest.
     const component = (attrs.component || attrs.operation || "").toLowerCase();
     let bucket = null;
-    if (component.includes("training")) bucket = "training";
-    else if (component.includes("hosting") || component.includes("real")) bucket = "inference";
+    if (gpuFam && component.includes("training")) bucket = "training";
+    else if (gpuFam && (component.includes("hosting") || component.includes("real"))) bucket = "inference";
+    else if (cpuFam) bucket = "cpu";
     if (!bucket) continue;
 
     // Pull the price.
@@ -109,17 +145,21 @@ async function main() {
     const price = parseFloat(firstDim && firstDim.pricePerUnit && firstDim.pricePerUnit.USD);
     if (!Number.isFinite(price) || price <= 0) continue;
 
-    // Prefer the lowest price we see per (bucket, instance) — the API can
-    // list multiple operation flavors for the same type.
     const existing = byBucket[bucket].get(instanceType);
     if (!existing || price < existing.pricePerHour) {
-      const meta = GPU_META[instanceType] || { gpus: 1, gpuModel: "unknown" };
-      byBucket[bucket].set(instanceType, {
-        type: instanceType,
-        gpus: meta.gpus,
-        gpuModel: meta.gpuModel,
-        pricePerHour: price,
-      });
+      if (bucket === "cpu") {
+        const vcpus = vcpusFromSize(instanceType);
+        if (!vcpus) continue;
+        byBucket.cpu.set(instanceType, { type: instanceType, vcpus, pricePerHour: price });
+      } else {
+        const meta = GPU_META[instanceType] || { gpus: 1, gpuModel: "unknown" };
+        byBucket[bucket].set(instanceType, {
+          type: instanceType,
+          gpus: meta.gpus,
+          gpuModel: meta.gpuModel,
+          pricePerHour: price,
+        });
+      }
     }
   }
 
@@ -131,6 +171,7 @@ async function main() {
     instances: {
       training: [...byBucket.training.values()].sort(sortFn),
       inference: [...byBucket.inference.values()].sort(sortFn),
+      cpu: [...byBucket.cpu.values()].sort(sortFn),
     },
   };
 
@@ -142,7 +183,7 @@ async function main() {
 
   await fs.writeFile(OUT_PATH, JSON.stringify(output, null, 2) + "\n");
   console.error(
-    `Wrote ${OUT_PATH} (${output.instances.training.length} training, ${output.instances.inference.length} inference)`
+    `Wrote ${OUT_PATH} (${output.instances.training.length} training GPU, ${output.instances.inference.length} inference GPU, ${output.instances.cpu.length} CPU)`
   );
 }
 

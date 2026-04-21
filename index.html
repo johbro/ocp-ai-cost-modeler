@@ -98,6 +98,85 @@
           <small>Used only for effective $/GPU-hour display</small>
         </label>
       </div>
+
+      <div class="panel">
+        <h2>Non-GPU / CPU workloads</h2>
+        <p class="hint">Preprocessing, feature engineering, CPU inference, batch jobs, ETL.</p>
+        <div class="computed">
+          <div><span>Avg CPU rate</span><strong id="avgCpuRate">—</strong></div>
+        </div>
+        <label>
+          <span>vCPUs allocated</span>
+          <input type="number" id="cpuCount" min="0" step="1" value="16" />
+        </label>
+        <label>
+          <span>CPU workload hours / month</span>
+          <input type="number" id="cpuHours" min="0" step="1" value="200" />
+          <small>Non-training: processing jobs, CPU inference, batch transform, ETL.</small>
+        </label>
+        <label class="inline">
+          <input type="checkbox" id="ocpCpuShared" checked />
+          <span>OpenShift absorbs CPU workloads into the main cluster (no extra cost)</span>
+        </label>
+        <label>
+          <span>OCP dedicated CPU rate ($/vCPU-hr, when not shared)</span>
+          <input type="number" id="ocpCpuRate" min="0" step="0.001" value="0.01" />
+        </label>
+      </div>
+
+      <div class="panel">
+        <h2>End-user workspaces</h2>
+        <p class="hint">SageMaker Studio / notebook instances vs OpenShift AI workbenches.</p>
+        <label>
+          <span>Active users (data scientists)</span>
+          <input type="number" id="userCount" min="0" step="1" value="5" />
+        </label>
+        <label>
+          <span>Active notebook hours / user / month</span>
+          <input type="number" id="userHours" min="0" step="1" value="120" />
+        </label>
+        <label>
+          <span>SageMaker notebook $/hour (default ≈ ml.m5.xlarge)</span>
+          <input type="number" id="smNotebookRate" min="0" step="0.01" value="0.23" />
+        </label>
+        <label class="inline">
+          <input type="checkbox" id="ocpWorkbenchShared" checked />
+          <span>OpenShift workbenches share the main GPU cluster (no extra cost)</span>
+        </label>
+        <label>
+          <span>OCP dedicated workbench $/user/month (when not shared)</span>
+          <input type="number" id="ocpWorkbenchPerUser" min="0" step="1" value="40" />
+        </label>
+      </div>
+
+      <div class="panel">
+        <h2>Data &amp; storage</h2>
+        <p class="hint">Datasets, models, and egress. Ingress is free on AWS.</p>
+        <label>
+          <span>Dataset + model storage (TB)</span>
+          <input type="number" id="storageTb" min="0" step="0.1" value="10" />
+        </label>
+        <label>
+          <span>Outbound data transfer (TB / month)</span>
+          <input type="number" id="egressTb" min="0" step="0.1" value="1" />
+        </label>
+        <label>
+          <span>SageMaker S3 Standard ($/GB-month)</span>
+          <input type="number" id="smStorageRate" min="0" step="0.001" value="0.023" />
+        </label>
+        <label>
+          <span>SageMaker egress ($/GB, blended past free tier)</span>
+          <input type="number" id="smEgressRate" min="0" step="0.01" value="0.09" />
+        </label>
+        <label>
+          <span>OCP storage ($/TB-month, amortized ODF/Ceph)</span>
+          <input type="number" id="ocpStorageRate" min="0" step="1" value="15" />
+        </label>
+        <label>
+          <span>OCP egress ($/GB, colo/transit)</span>
+          <input type="number" id="ocpEgressRate" min="0" step="0.01" value="0.02" />
+        </label>
+      </div>
     </section>
 
     <section class="results">
