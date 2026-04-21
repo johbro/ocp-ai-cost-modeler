@@ -90,6 +90,12 @@ This repo is a static site ready for GitHub Pages:
 `.nojekyll` is present so paths like `data/sagemaker-prices.json` are served
 as-is (no Jekyll processing).
 
+**Cache busting**: `index.html` references `app.js?v=N` and `styles.css?v=N`.
+GitHub Pages sets a 10-minute browser cache on static assets, which can
+otherwise pair an old JS file with new JSON after a redeploy. When you make
+a change to `app.js` or `styles.css`, bump the `v=N` query string in
+`index.html` so visitors get the fresh file on next load.
+
 ## File layout
 
 ```
