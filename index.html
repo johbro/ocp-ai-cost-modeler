@@ -3,171 +3,37 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ML Cost: SageMaker vs OpenShift AI</title>
+  <title>ML Workload Cost: SageMaker vs OpenShift AI</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header>
     <h1>ML Workload Cost Comparison</h1>
-    <p class="subtitle">AWS SageMaker vs Red Hat OpenShift AI on baremetal</p>
+    <p class="subtitle">AWS SageMaker vs Red Hat OpenShift AI</p>
     <p class="data-stamp" id="dataStamp">Loading pricing…</p>
   </header>
 
   <main>
     <section class="inputs">
       <div class="panel">
-        <h2>Workload</h2>
-        <label>
-          <span>Training GPUs</span>
-          <input type="number" id="trainGpus" min="0" step="1" value="8" />
-        </label>
-        <label>
-          <span>Training hours / month</span>
-          <input type="number" id="trainHours" min="0" step="1" value="120" />
-        </label>
-        <label>
-          <span>Inference GPUs (endpoint replicas)</span>
-          <input type="number" id="infGpus" min="0" step="1" value="4" />
-        </label>
-        <label>
-          <span>Inference hours / month</span>
-          <input type="number" id="infHours" min="0" max="744" step="1" value="730" />
-          <small>730 ≈ always-on</small>
-        </label>
-        <label class="inline">
-          <input type="checkbox" id="sharedPool" />
-          <span>Share a single GPU pool between training and inference (uses peak, not sum)</span>
-        </label>
-      </div>
-
-      <div class="panel">
-        <h2>AWS SageMaker</h2>
-        <p class="hint">Averaging $/GPU-hour across published instances (user directive: no single SKU).</p>
+        <h2>Workloads</h2>
+        <p class="hint">Preprocessing, feature engineering, CPU inference, batch transform, ETL, model evaluation.</p>
         <div class="computed">
-          <div><span>Avg training</span><strong id="avgTrainRate">—</strong></div>
-          <div><span>Avg real-time inference</span><strong id="avgInfRate">—</strong></div>
-        </div>
-        <details>
-          <summary>Instances in the average</summary>
-          <div id="instanceList"></div>
-        </details>
-      </div>
-
-      <div class="panel">
-        <h2>OpenShift AI baremetal TCO</h2>
-        <p class="hint">Editable assumptions. Defaults reflect an average 8-GPU accelerator server.</p>
-        <label>
-          <span>Server cost (USD, 8-GPU node)</span>
-          <input type="number" id="serverCost" min="0" step="1000" value="250000" />
-        </label>
-        <label>
-          <span>GPUs per server</span>
-          <input type="number" id="gpusPerServer" min="1" step="1" value="8" />
-        </label>
-        <label class="inline">
-          <input type="checkbox" id="manualSizing" />
-          <span>Manually size cluster (otherwise auto-size to workload peak)</span>
-        </label>
-        <label>
-          <span>Number of servers (used when manually sized)</span>
-          <input type="number" id="clusterServers" min="1" step="1" value="2" />
-        </label>
-        <label>
-          <span>Amortization period (years)</span>
-          <input type="number" id="amortYears" min="1" max="10" step="1" value="3" />
-        </label>
-        <label>
-          <span>OpenShift Platform Plus, $/server/year</span>
-          <input type="number" id="ocpSubPerServer" min="0" step="100" value="15000" />
-        </label>
-        <label>
-          <span>OpenShift AI, $/GPU/year</span>
-          <input type="number" id="ocpAiPerGpu" min="0" step="100" value="1500" />
-        </label>
-        <label>
-          <span>Power draw (kW / server)</span>
-          <input type="number" id="kwPerServer" min="0" step="0.1" value="8" />
-        </label>
-        <label>
-          <span>Energy cost ($/kWh)</span>
-          <input type="number" id="kwhCost" min="0" step="0.01" value="0.10" />
-        </label>
-        <label>
-          <span>Datacenter PUE</span>
-          <input type="number" id="pue" min="1" step="0.05" value="1.5" />
-        </label>
-        <label>
-          <span>Ops overhead (% of capex / year)</span>
-          <input type="number" id="opsPct" min="0" step="1" value="15" />
-        </label>
-        <label>
-          <span>GPU utilization (%)</span>
-          <input type="number" id="utilPct" min="1" max="100" step="1" value="70" />
-          <small>Used only for effective $/GPU-hour display</small>
-        </label>
-      </div>
-
-      <div class="panel">
-        <h2>OpenShift non-GPU cluster (optional)</h2>
-        <p class="hint">A separate CPU-only OpenShift cluster. When enabled, absorbs CPU workloads and workbenches that aren't already set to share the GPU cluster — replacing the simple per-vCPU-hr and per-user rates.</p>
-        <label class="inline">
-          <input type="checkbox" id="nonGpuEnabled" />
-          <span>Provision a dedicated non-GPU cluster</span>
-        </label>
-        <label>
-          <span>Server cost (USD, CPU-only node)</span>
-          <input type="number" id="nonGpuServerCost" min="0" step="1000" value="20000" />
-        </label>
-        <label>
-          <span>vCPUs per server</span>
-          <input type="number" id="nonGpuVcpusPerServer" min="1" step="1" value="96" />
-        </label>
-        <label class="inline">
-          <input type="checkbox" id="nonGpuManualSizing" />
-          <span>Manually size (otherwise auto-size to workload)</span>
-        </label>
-        <label>
-          <span>Number of servers (when manually sized)</span>
-          <input type="number" id="nonGpuServers" min="1" step="1" value="2" />
-        </label>
-        <label>
-          <span>OCP Platform Plus, $/server/year</span>
-          <input type="number" id="nonGpuSubPerServer" min="0" step="100" value="15000" />
-        </label>
-        <label>
-          <span>Power draw (kW / server)</span>
-          <input type="number" id="nonGpuKwPerServer" min="0" step="0.1" value="1.0" />
-        </label>
-        <label>
-          <span>vCPUs per notebook user (for sizing + cost allocation)</span>
-          <input type="number" id="nbVcpusPerUser" min="1" step="1" value="4" />
-        </label>
-        <small>Amortization, energy cost, PUE, and ops overhead are shared with the GPU cluster above.</small>
-      </div>
-
-      <div class="panel">
-        <h2>Non-GPU / CPU workloads</h2>
-        <p class="hint">Preprocessing, feature engineering, CPU inference, batch jobs, ETL.</p>
-        <div class="computed">
-          <div><span>Avg CPU rate</span><strong id="avgCpuRate">—</strong></div>
+          <div><span>Avg SageMaker rate</span><strong id="avgCpuRate">—</strong></div>
         </div>
         <label>
           <span>vCPUs allocated</span>
           <input type="number" id="cpuCount" min="0" step="1" value="16" />
         </label>
         <label>
-          <span>CPU workload hours / month</span>
-          <input type="number" id="cpuHours" min="0" step="1" value="200" />
-          <small>Non-training: processing jobs, CPU inference, batch transform, ETL.</small>
+          <span>Workload hours / month</span>
+          <input type="number" id="cpuHours" min="0" max="744" step="1" value="200" />
+          <small>730 ≈ always-on endpoint.</small>
         </label>
-        <label class="inline">
-          <input type="checkbox" id="ocpCpuShared" checked />
-          <span>OpenShift absorbs CPU workloads into the main cluster (no extra cost)</span>
-        </label>
-        <label>
-          <span>OCP dedicated CPU rate ($/vCPU-hr, when not shared)</span>
-          <input type="number" id="ocpCpuRate" min="0" step="0.001" value="0.01" />
-        </label>
+        <details>
+          <summary>SageMaker instances in the average</summary>
+          <div id="instanceList"></div>
+        </details>
       </div>
 
       <div class="panel">
@@ -185,13 +51,9 @@
           <span>SageMaker notebook $/hour (default ≈ ml.m5.xlarge)</span>
           <input type="number" id="smNotebookRate" min="0" step="0.01" value="0.23" />
         </label>
-        <label class="inline">
-          <input type="checkbox" id="ocpWorkbenchShared" checked />
-          <span>OpenShift workbenches share the main GPU cluster (no extra cost)</span>
-        </label>
         <label>
-          <span>OCP dedicated workbench $/user/month (when not shared)</span>
-          <input type="number" id="ocpWorkbenchPerUser" min="0" step="1" value="40" />
+          <span>vCPUs per notebook user (sizes the OCP cluster)</span>
+          <input type="number" id="nbVcpusPerUser" min="1" step="1" value="4" />
         </label>
       </div>
 
@@ -223,6 +85,56 @@
           <input type="number" id="ocpEgressRate" min="0" step="0.01" value="0.02" />
         </label>
       </div>
+
+      <div class="panel">
+        <h2>OpenShift AI cluster TCO</h2>
+        <p class="hint">Total cost of ownership for an on-prem OpenShift AI cluster serving both workloads and workbenches. Editable assumptions — defaults reflect a dual-socket CPU node.</p>
+        <label>
+          <span>Server cost (USD per node)</span>
+          <input type="number" id="serverCost" min="0" step="1000" value="20000" />
+        </label>
+        <label>
+          <span>vCPUs per server</span>
+          <input type="number" id="vcpusPerServer" min="1" step="1" value="96" />
+        </label>
+        <label class="inline">
+          <input type="checkbox" id="manualSizing" />
+          <span>Manually size cluster (otherwise auto-size to total vCPU demand)</span>
+        </label>
+        <label>
+          <span>Number of servers (used when manually sized)</span>
+          <input type="number" id="clusterServers" min="1" step="1" value="2" />
+        </label>
+        <label>
+          <span>Amortization period (years)</span>
+          <input type="number" id="amortYears" min="1" max="10" step="1" value="3" />
+        </label>
+        <label>
+          <span>OpenShift Platform Plus, $/server/year</span>
+          <input type="number" id="ocpSubPerServer" min="0" step="100" value="15000" />
+        </label>
+        <label>
+          <span>Power draw (kW / server)</span>
+          <input type="number" id="kwPerServer" min="0" step="0.1" value="1.0" />
+        </label>
+        <label>
+          <span>Energy cost ($/kWh)</span>
+          <input type="number" id="kwhCost" min="0" step="0.01" value="0.10" />
+        </label>
+        <label>
+          <span>Datacenter PUE</span>
+          <input type="number" id="pue" min="1" step="0.05" value="1.5" />
+        </label>
+        <label>
+          <span>Ops overhead (% of capex / year)</span>
+          <input type="number" id="opsPct" min="0" step="1" value="15" />
+        </label>
+        <label>
+          <span>vCPU utilization (%)</span>
+          <input type="number" id="utilPct" min="1" max="100" step="1" value="70" />
+          <small>Used only for effective $/vCPU-hour display.</small>
+        </label>
+      </div>
     </section>
 
     <section class="results">
@@ -240,7 +152,7 @@
       </div>
 
       <div class="chart-container wide">
-        <h3>Cost vs. monthly GPU-hours (breakeven)</h3>
+        <h3>Cost vs. monthly workload hours (breakeven)</h3>
         <canvas id="sweepChart"></canvas>
         <p class="hint" id="breakevenNote"></p>
       </div>
@@ -250,7 +162,7 @@
       <p>
         SageMaker prices are a dated snapshot (us-east-1, on-demand).
         Refresh with <code>node scripts/refresh-sagemaker-prices.mjs</code>.
-        OpenShift AI figures are TCO approximations from the inputs above.
+        OpenShift figures are TCO approximations from the inputs above.
         Both sides are list-price-oriented; real deals vary.
       </p>
     </footer>

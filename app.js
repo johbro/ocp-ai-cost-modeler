@@ -1,10 +1,9 @@
 const HOURS_PER_YEAR = 8760;
 const HOURS_PER_MONTH = 730;
+const GB_PER_TB = 1000;
 
 const state = {
   prices: null,
-  avgTrain: 0,
-  avgInf: 0,
   avgCpu: 0,
   charts: { monthly: null, tco: null, sweep: null },
 };
@@ -21,16 +20,9 @@ function average(values) {
 }
 
 function computeAverages(prices) {
-  const gpuOnly = (arr) => arr.filter((i) => i.gpus && i.gpus > 0);
-  const perGpuTrain = gpuOnly(prices.instances.training).map((i) => i.pricePerHour / i.gpus);
-  const perGpuInf = gpuOnly(prices.instances.inference).map((i) => i.pricePerHour / i.gpus);
-  const cpuList = prices.instances.cpu || [];
-  const perVcpu = cpuList.filter((i) => i.vcpus && i.vcpus > 0).map((i) => i.pricePerHour / i.vcpus);
-  return {
-    avgTrain: average(perGpuTrain),
-    avgInf: average(perGpuInf),
-    avgCpu: average(perVcpu),
-  };
+  const list = prices.instances || [];
+  const perVcpu = list.filter((i) => i.vcpus && i.vcpus > 0).map((i) => i.pricePerHour / i.vcpus);
+  return { avgCpu: average(perVcpu) };
 }
 
 function formatMoney(n) {
@@ -45,182 +37,97 @@ function formatMoneyFull(n) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
-const GB_PER_TB = 1000;
-
 function readInputs() {
   const num = (id) => parseFloat(document.getElementById(id).value) || 0;
   const bool = (id) => document.getElementById(id).checked;
   return {
-    trainGpus: num("trainGpus"),
-    trainHours: num("trainHours"),
-    infGpus: num("infGpus"),
-    infHours: num("infHours"),
-    sharedPool: bool("sharedPool"),
-    serverCost: num("serverCost"),
-    gpusPerServer: Math.max(1, num("gpusPerServer")),
-    manualSizing: bool("manualSizing"),
-    clusterServers: Math.max(1, num("clusterServers")),
-    amortYears: Math.max(1, num("amortYears")),
-    ocpSubPerServer: num("ocpSubPerServer"),
-    ocpAiPerGpu: num("ocpAiPerGpu"),
-    kwPerServer: num("kwPerServer"),
-    kwhCost: num("kwhCost"),
-    pue: Math.max(1, num("pue")),
-    opsPct: num("opsPct"),
-    utilPct: Math.max(1, Math.min(100, num("utilPct"))),
+    cpuCount: num("cpuCount"),
+    cpuHours: num("cpuHours"),
     userCount: num("userCount"),
     userHours: num("userHours"),
     smNotebookRate: num("smNotebookRate"),
-    ocpWorkbenchShared: bool("ocpWorkbenchShared"),
-    ocpWorkbenchPerUser: num("ocpWorkbenchPerUser"),
+    nbVcpusPerUser: Math.max(1, num("nbVcpusPerUser")),
     storageTb: num("storageTb"),
     egressTb: num("egressTb"),
     smStorageRate: num("smStorageRate"),
     smEgressRate: num("smEgressRate"),
     ocpStorageRate: num("ocpStorageRate"),
     ocpEgressRate: num("ocpEgressRate"),
-    cpuCount: num("cpuCount"),
-    cpuHours: num("cpuHours"),
-    ocpCpuShared: bool("ocpCpuShared"),
-    ocpCpuRate: num("ocpCpuRate"),
-    nonGpuEnabled: bool("nonGpuEnabled"),
-    nonGpuServerCost: num("nonGpuServerCost"),
-    nonGpuVcpusPerServer: Math.max(1, num("nonGpuVcpusPerServer")),
-    nonGpuManualSizing: bool("nonGpuManualSizing"),
-    nonGpuServers: Math.max(1, num("nonGpuServers")),
-    nonGpuSubPerServer: num("nonGpuSubPerServer"),
-    nonGpuKwPerServer: num("nonGpuKwPerServer"),
-    nbVcpusPerUser: Math.max(1, num("nbVcpusPerUser")),
+    serverCost: num("serverCost"),
+    vcpusPerServer: Math.max(1, num("vcpusPerServer")),
+    manualSizing: bool("manualSizing"),
+    clusterServers: Math.max(1, num("clusterServers")),
+    amortYears: Math.max(1, num("amortYears")),
+    ocpSubPerServer: num("ocpSubPerServer"),
+    kwPerServer: num("kwPerServer"),
+    kwhCost: num("kwhCost"),
+    pue: Math.max(1, num("pue")),
+    opsPct: num("opsPct"),
+    utilPct: Math.max(1, Math.min(100, num("utilPct"))),
   };
 }
 
 function computeSageMaker(i, rates) {
-  const train = i.trainGpus * i.trainHours * rates.avgTrain;
-  const inference = i.infGpus * i.infHours * rates.avgInf;
-  const cpu = i.cpuCount * i.cpuHours * rates.avgCpu;
+  const compute = i.cpuCount * i.cpuHours * rates.avgCpu;
   const notebooks = i.userCount * i.userHours * i.smNotebookRate;
   const storage = i.storageTb * GB_PER_TB * i.smStorageRate;
   const egress = i.egressTb * GB_PER_TB * i.smEgressRate;
-  const gpuCompute = train + inference;
-  const total = gpuCompute + cpu + notebooks + storage + egress;
-  return { train, inference, gpuCompute, cpu, notebooks, storage, egress, total };
-}
-
-function computeNonGpuCluster(i) {
-  if (!i.nonGpuEnabled) return null;
-
-  const cpuOnNonGpu = !i.ocpCpuShared;
-  const nbOnNonGpu = !i.ocpWorkbenchShared;
-  const cpuDemand = cpuOnNonGpu ? i.cpuCount : 0;
-  const nbDemand = nbOnNonGpu ? i.userCount * i.nbVcpusPerUser : 0;
-  const totalDemand = cpuDemand + nbDemand;
-
-  const autoServers = Math.max(1, Math.ceil(totalDemand / i.nonGpuVcpusPerServer));
-  const servers = i.nonGpuManualSizing ? i.nonGpuServers : autoServers;
-  const clusterVcpus = servers * i.nonGpuVcpusPerServer;
-  const undersized = i.nonGpuManualSizing && totalDemand > clusterVcpus;
-
-  const capex = servers * i.nonGpuServerCost;
-  const hardwareAnnual = capex / i.amortYears;
-  const subsAnnual = servers * i.nonGpuSubPerServer;
-  const powerAnnual = servers * i.nonGpuKwPerServer * HOURS_PER_YEAR * i.kwhCost * i.pue;
-  const opsAnnual = capex * (i.opsPct / 100);
-  const monthly = (hardwareAnnual + subsAnnual + powerAnnual + opsAnnual) / 12;
-
-  let cpuShare = 0;
-  let nbShare = 0;
-  if (totalDemand > 0) {
-    cpuShare = cpuDemand / totalDemand;
-    nbShare = nbDemand / totalDemand;
-  } else if (cpuOnNonGpu) {
-    cpuShare = 1;
-  } else if (nbOnNonGpu) {
-    nbShare = 1;
-  } else {
-    cpuShare = 1;
-  }
-
-  return {
-    enabled: true,
-    servers,
-    clusterVcpus,
-    totalDemand,
-    undersized,
-    monthly,
-    cpuAllocation: monthly * cpuShare,
-    nbAllocation: monthly * nbShare,
-    breakdown: {
-      hardware: hardwareAnnual / 12,
-      subscriptions: subsAnnual / 12,
-      power: powerAnnual / 12,
-      ops: opsAnnual / 12,
-    },
-  };
+  const total = compute + notebooks + storage + egress;
+  return { compute, notebooks, storage, egress, total };
 }
 
 function computeOpenShift(i) {
-  const peakGpus = i.sharedPool
-    ? Math.max(i.trainGpus, i.infGpus)
-    : i.trainGpus + i.infGpus;
+  const workloadVcpus = i.cpuCount;
+  const workbenchVcpus = i.userCount * i.nbVcpusPerUser;
+  const totalDemand = workloadVcpus + workbenchVcpus;
+
+  const autoServers = Math.max(1, Math.ceil(totalDemand / i.vcpusPerServer));
+  const servers = i.manualSizing ? i.clusterServers : autoServers;
+  const clusterVcpus = servers * i.vcpusPerServer;
+  const undersized = i.manualSizing && totalDemand > clusterVcpus;
+
+  const capex = servers * i.serverCost;
+  const hardwareAnnual = capex / i.amortYears;
+  const subsAnnual = servers * i.ocpSubPerServer;
+  const powerAnnual = servers * i.kwPerServer * HOURS_PER_YEAR * i.kwhCost * i.pue;
+  const opsAnnual = capex * (i.opsPct / 100);
+  const clusterAnnual = hardwareAnnual + subsAnnual + powerAnnual + opsAnnual;
+  const clusterMonthly = clusterAnnual / 12;
+
+  // Allocate the flat cluster cost across compute and workspaces by vCPU demand.
+  // If there's no declared demand but a cluster is defined, attribute all to compute.
+  let computeShare, workbenchShare;
+  if (totalDemand > 0) {
+    computeShare = workloadVcpus / totalDemand;
+    workbenchShare = workbenchVcpus / totalDemand;
+  } else {
+    computeShare = 1;
+    workbenchShare = 0;
+  }
+  const compute = clusterMonthly * computeShare;
+  const notebooks = clusterMonthly * workbenchShare;
 
   const storage = i.storageTb * i.ocpStorageRate;
   const egress = i.egressTb * GB_PER_TB * i.ocpEgressRate;
 
-  const nonGpu = computeNonGpuCluster(i);
-  let notebooks = 0;
-  if (!i.ocpWorkbenchShared) {
-    notebooks = nonGpu ? nonGpu.nbAllocation : i.userCount * i.ocpWorkbenchPerUser;
-  }
-  let cpu = 0;
-  if (!i.ocpCpuShared) {
-    cpu = nonGpu ? nonGpu.cpuAllocation : i.cpuCount * i.cpuHours * i.ocpCpuRate;
-  }
-
-  const autoServers = Math.max(1, Math.ceil(peakGpus / i.gpusPerServer));
-  const servers = i.manualSizing ? i.clusterServers : autoServers;
-  const clusterGpus = servers * i.gpusPerServer;
-  const undersized = i.manualSizing && peakGpus > clusterGpus;
-
-  if (peakGpus === 0 && !i.manualSizing) {
-    const monthly = storage + egress + notebooks + cpu;
-    return {
-      peakGpus: 0, servers: 0, clusterGpus: 0, undersized: false,
-      annual: monthly * 12, monthly, tco: monthly * 12 * i.amortYears,
-      effectivePerGpuHour: 0,
-      gpuCompute: 0, cpu, notebooks, storage, egress,
-      nonGpu,
-      breakdown: { hardware: 0, subscriptions: 0, power: 0, ops: 0, cpu, notebooks, storage, egress },
-    };
-  }
-
-  const capex = servers * i.serverCost;
-  const hardwareAnnual = capex / i.amortYears;
-  const subsAnnual = servers * i.ocpSubPerServer + clusterGpus * i.ocpAiPerGpu;
-  const powerAnnual = servers * i.kwPerServer * HOURS_PER_YEAR * i.kwhCost * i.pue;
-  const opsAnnual = capex * (i.opsPct / 100);
-
-  const gpuComputeAnnual = hardwareAnnual + subsAnnual + powerAnnual + opsAnnual;
-  const gpuCompute = gpuComputeAnnual / 12;
-  const monthly = gpuCompute + cpu + notebooks + storage + egress;
+  const monthly = clusterMonthly + storage + egress;
   const annual = monthly * 12;
   const tco = annual * i.amortYears;
 
-  const effectiveGpuHours = clusterGpus * HOURS_PER_YEAR * (i.utilPct / 100);
-  const effectivePerGpuHour = effectiveGpuHours > 0 ? gpuComputeAnnual / effectiveGpuHours : 0;
+  const effectiveVcpuHours = clusterVcpus * HOURS_PER_YEAR * (i.utilPct / 100);
+  const effectivePerVcpuHour = effectiveVcpuHours > 0 ? clusterAnnual / effectiveVcpuHours : 0;
 
   return {
-    peakGpus, servers, clusterGpus, undersized,
-    annual, monthly, tco,
-    effectivePerGpuHour,
-    gpuCompute, cpu, notebooks, storage, egress,
-    nonGpu,
+    servers, clusterVcpus, totalDemand, undersized,
+    clusterMonthly,
+    compute, notebooks, storage, egress,
+    monthly, annual, tco,
+    effectivePerVcpuHour,
     breakdown: {
       hardware: hardwareAnnual / 12,
       subscriptions: subsAnnual / 12,
       power: powerAnnual / 12,
       ops: opsAnnual / 12,
-      cpu,
-      notebooks,
       storage,
       egress,
     },
@@ -234,14 +141,14 @@ function destroyChart(key) {
   }
 }
 
-const CATEGORIES = ["GPU compute", "CPU compute", "Workspaces", "Storage", "Egress", "Total"];
+const CATEGORIES = ["Compute", "Workspaces", "Storage", "Egress", "Total"];
 
 function smCategories(sm) {
-  return [sm.gpuCompute, sm.cpu, sm.notebooks, sm.storage, sm.egress, sm.total];
+  return [sm.compute, sm.notebooks, sm.storage, sm.egress, sm.total];
 }
 
 function ocpCategories(ocp) {
-  return [ocp.gpuCompute, ocp.cpu, ocp.notebooks, ocp.storage, ocp.egress, ocp.monthly];
+  return [ocp.compute, ocp.notebooks, ocp.storage, ocp.egress, ocp.monthly];
 }
 
 function renderMonthlyChart(sm, ocp) {
@@ -299,16 +206,13 @@ function renderTcoChart(sm, ocp, years) {
 function renderSweepChart(inputs, rates, sm, ocp) {
   destroyChart("sweep");
   const ctx = document.getElementById("sweepChart");
-  const totalGpus = inputs.trainGpus + inputs.infGpus;
-  const blendedRate = totalGpus > 0
-    ? (inputs.trainGpus * rates.avgTrain + inputs.infGpus * rates.avgInf) / totalGpus
-    : 0;
+  const vcpus = inputs.cpuCount;
 
-  // Fixed costs that don't scale with GPU-hours — shift both curves up.
-  const smFixed = sm.cpu + sm.notebooks + sm.storage + sm.egress;
-  const ocpFixed = ocp.monthly;
+  // Fixed costs that don't scale with workload hours.
+  const smFixed = sm.notebooks + sm.storage + sm.egress;
+  const ocpTotal = ocp.monthly;
 
-  const maxHours = Math.max(HOURS_PER_MONTH, (inputs.trainHours + inputs.infHours) * 1.5, 100);
+  const maxHours = Math.max(HOURS_PER_MONTH, inputs.cpuHours * 1.5, 100);
   const steps = 40;
   const labels = [];
   const sageLine = [];
@@ -316,8 +220,8 @@ function renderSweepChart(inputs, rates, sm, ocp) {
   for (let s = 0; s <= steps; s++) {
     const h = (maxHours * s) / steps;
     labels.push(Math.round(h));
-    sageLine.push(smFixed + h * totalGpus * blendedRate);
-    ocpLine.push(ocpFixed);
+    sageLine.push(smFixed + h * vcpus * rates.avgCpu);
+    ocpLine.push(ocpTotal);
   }
 
   state.charts.sweep = new Chart(ctx, {
@@ -335,36 +239,34 @@ function renderSweepChart(inputs, rates, sm, ocp) {
       plugins: {
         tooltip: {
           callbacks: {
-            title: (items) => `${items[0].label} GPU-hours / month`,
+            title: (items) => `${items[0].label} workload hours / month`,
             label: (c) => `${c.dataset.label}: ${formatMoneyFull(c.raw)}`,
           },
         },
       },
       scales: {
-        x: { title: { display: true, text: "GPU-hours per month (across all GPUs)" } },
+        x: { title: { display: true, text: `Workload hours per month (at ${vcpus} vCPUs)` } },
         y: { ticks: { callback: (v) => formatMoney(v) } },
       },
     },
   });
 
   const note = document.getElementById("breakevenNote");
-  if (totalGpus === 0 || blendedRate === 0) {
-    note.textContent = "Enter GPU counts to see breakeven.";
+  if (vcpus === 0 || rates.avgCpu === 0) {
+    note.textContent = "Set vCPUs allocated and a SageMaker rate to see breakeven.";
     return;
   }
-  const breakevenGpuHours = (ocpFixed - smFixed) / (totalGpus * blendedRate);
-  if (breakevenGpuHours <= 0) {
-    note.innerHTML = `SageMaker fixed costs already exceed OpenShift AI total — OpenShift AI wins at every GPU-hour count.`;
+  const breakevenHours = (ocpTotal - smFixed) / (vcpus * rates.avgCpu);
+  if (breakevenHours <= 0) {
+    note.innerHTML = `SageMaker fixed costs already exceed OpenShift AI total — OpenShift AI wins at every workload hour count.`;
     return;
   }
-  const breakevenHoursPerGpu = breakevenGpuHours / totalGpus;
   note.innerHTML =
-    `Breakeven: <strong>${Math.round(breakevenGpuHours).toLocaleString()} GPU-hours / month</strong> ` +
-    `(≈ <strong>${breakevenHoursPerGpu.toFixed(0)} hrs/month per GPU</strong>). ` +
-    `Below that, SageMaker wins; above, OpenShift AI wins.`;
+    `Breakeven: <strong>${Math.round(breakevenHours).toLocaleString()} workload hours / month</strong> ` +
+    `at ${vcpus} vCPUs. Below that, SageMaker wins; above, OpenShift AI wins.`;
 }
 
-function renderSummary(sm, ocp, inputs, rates) {
+function renderSummary(sm, ocp, inputs) {
   const smMonthly = sm.total;
   const ocpMonthly = ocp.monthly;
   const smTco = sm.total * 12 * inputs.amortYears;
@@ -379,10 +281,10 @@ function renderSummary(sm, ocp, inputs, rates) {
   if (diffPct > 0.05) {
     if (smMonthly < ocpMonthly) {
       verdictClass = "sagemaker";
-      verdictText = `At this workload, SageMaker is ~${Math.round(((ocpMonthly - smMonthly) / ocpMonthly) * 100)}% cheaper per month. Baremetal only pays off at higher sustained utilization.`;
+      verdictText = `At this workload, SageMaker is ~${Math.round(((ocpMonthly - smMonthly) / ocpMonthly) * 100)}% cheaper per month. The on-prem cluster only pays off at higher sustained utilization.`;
     } else {
       verdictClass = "openshift";
-      verdictText = `At this workload, OpenShift AI baremetal is ~${Math.round(((smMonthly - ocpMonthly) / smMonthly) * 100)}% cheaper per month. Sustained utilization is amortizing the cluster well.`;
+      verdictText = `At this workload, OpenShift AI is ~${Math.round(((smMonthly - ocpMonthly) / smMonthly) * 100)}% cheaper per month. Sustained utilization is amortizing the cluster well.`;
     }
   }
 
@@ -405,21 +307,15 @@ function renderSummary(sm, ocp, inputs, rates) {
         <div class="value">${formatMoneyFull(ocpTco)}</div>
       </div>
       <div class="summary-card">
-        <div class="label">OCP GPU cluster${inputs.manualSizing ? " (manual)" : " (auto)"}</div>
-        <div class="value">${ocp.servers} srv / ${ocp.clusterGpus} GPU</div>
+        <div class="label">OCP cluster${inputs.manualSizing ? " (manual)" : " (auto)"}</div>
+        <div class="value">${ocp.servers} srv / ${ocp.clusterVcpus} vCPU</div>
       </div>
-      ${ocp.nonGpu ? `
       <div class="summary-card">
-        <div class="label">OCP non-GPU cluster${inputs.nonGpuManualSizing ? " (manual)" : " (auto)"}</div>
-        <div class="value">${ocp.nonGpu.servers} srv / ${ocp.nonGpu.clusterVcpus} vCPU</div>
-      </div>` : ""}
-      <div class="summary-card">
-        <div class="label">OCP effective $/GPU-hr @ ${inputs.utilPct}%</div>
-        <div class="value">$${ocp.effectivePerGpuHour.toFixed(2)}</div>
+        <div class="label">OCP effective $/vCPU-hr @ ${inputs.utilPct}%</div>
+        <div class="value">$${ocp.effectivePerVcpuHour.toFixed(4)}</div>
       </div>
     </div>
-    ${ocp.undersized ? `<div class="verdict openshift"><strong>GPU cluster warning:</strong> manually sized cluster has ${ocp.clusterGpus} GPUs but workload peak needs ${ocp.peakGpus}.</div>` : ""}
-    ${ocp.nonGpu && ocp.nonGpu.undersized ? `<div class="verdict openshift"><strong>Non-GPU cluster warning:</strong> manually sized cluster has ${ocp.nonGpu.clusterVcpus} vCPU but CPU + notebook demand is ${ocp.nonGpu.totalDemand} vCPU.</div>` : ""}
+    ${ocp.undersized ? `<div class="verdict openshift"><strong>Warning:</strong> manually sized cluster has ${ocp.clusterVcpus} vCPU but workload + workbench demand is ${ocp.totalDemand} vCPU. Costs shown reflect the cluster you specified; it cannot actually run the workload as configured.</div>` : ""}
     <div class="verdict ${verdictClass}">${verdictText}</div>
     <details style="margin-top: 0.75rem;">
       <summary>Monthly cost breakdown (both sides)</summary>
@@ -427,9 +323,7 @@ function renderSummary(sm, ocp, inputs, rates) {
         <div>
           <strong>SageMaker</strong>
           <ul>
-            <li>GPU training: ${formatMoneyFull(sm.train)}</li>
-            <li>GPU inference: ${formatMoneyFull(sm.inference)}</li>
-            <li>CPU compute: ${formatMoneyFull(sm.cpu)}</li>
+            <li>Compute (workload vCPU-hours): ${formatMoneyFull(sm.compute)}</li>
             <li>Notebook workspaces: ${formatMoneyFull(sm.notebooks)}</li>
             <li>S3 storage: ${formatMoneyFull(sm.storage)}</li>
             <li>Data egress: ${formatMoneyFull(sm.egress)}</li>
@@ -438,16 +332,14 @@ function renderSummary(sm, ocp, inputs, rates) {
         <div>
           <strong>OpenShift AI</strong>
           <ul>
-            <li>GPU cluster hardware (amortized): ${formatMoneyFull(ocp.breakdown.hardware)}</li>
-            <li>Subscriptions (OCP + OAI): ${formatMoneyFull(ocp.breakdown.subscriptions)}</li>
+            <li>Cluster hardware (amortized): ${formatMoneyFull(ocp.breakdown.hardware)}</li>
+            <li>Subscriptions (OCP Platform Plus): ${formatMoneyFull(ocp.breakdown.subscriptions)}</li>
             <li>Power + cooling (PUE applied): ${formatMoneyFull(ocp.breakdown.power)}</li>
             <li>Ops overhead: ${formatMoneyFull(ocp.breakdown.ops)}</li>
-            ${ocp.nonGpu ? `<li>Non-GPU cluster total: ${formatMoneyFull(ocp.nonGpu.monthly)} <em>(hw ${formatMoneyFull(ocp.nonGpu.breakdown.hardware)} + subs ${formatMoneyFull(ocp.nonGpu.breakdown.subscriptions)} + power ${formatMoneyFull(ocp.nonGpu.breakdown.power)} + ops ${formatMoneyFull(ocp.nonGpu.breakdown.ops)})</em></li>` : ""}
-            <li>CPU compute: ${formatMoneyFull(ocp.breakdown.cpu)}${inputs.ocpCpuShared ? " <em>(absorbed by GPU cluster)</em>" : ocp.nonGpu ? " <em>(allocated from non-GPU cluster)</em>" : ""}</li>
-            <li>Workbench workspaces: ${formatMoneyFull(ocp.breakdown.notebooks)}${inputs.ocpWorkbenchShared ? " <em>(absorbed by GPU cluster)</em>" : ocp.nonGpu ? " <em>(allocated from non-GPU cluster)</em>" : ""}</li>
             <li>Storage: ${formatMoneyFull(ocp.breakdown.storage)}</li>
             <li>Data egress: ${formatMoneyFull(ocp.breakdown.egress)}</li>
           </ul>
+          <small>Cluster cost is allocated to Compute (${formatMoneyFull(ocp.compute)}) and Workspaces (${formatMoneyFull(ocp.notebooks)}) by vCPU demand.</small>
         </div>
       </div>
     </details>
@@ -457,33 +349,18 @@ function renderSummary(sm, ocp, inputs, rates) {
 
 function renderInstanceList(prices) {
   const el = document.getElementById("instanceList");
-  const gpuRow = (i) => {
-    const gpus = i.gpus || 0;
-    const perGpu = gpus > 0 ? `$${(i.pricePerHour / gpus).toFixed(3)}/GPU-hr` : "—";
-    return `<div class="row"><span>${i.type} · ${gpus}× ${i.gpuModel || "?"}</span><span>$${i.pricePerHour.toFixed(3)}/hr · ${perGpu}</span></div>`;
-  };
-  const cpuRow = (i) =>
+  const row = (i) =>
     `<div class="row"><span>${i.type} · ${i.vcpus} vCPU</span><span>$${i.pricePerHour.toFixed(3)}/hr · $${(i.pricePerHour / i.vcpus).toFixed(4)}/vCPU-hr</span></div>`;
-  const cpuList = prices.instances.cpu || [];
-  el.innerHTML =
-    `<div style="margin-top:0.5rem;color:var(--text)"><strong>GPU training</strong></div>` +
-    prices.instances.training.map(gpuRow).join("") +
-    `<div style="margin-top:0.5rem;color:var(--text)"><strong>GPU real-time inference</strong></div>` +
-    prices.instances.inference.map(gpuRow).join("") +
-    (cpuList.length
-      ? `<div style="margin-top:0.5rem;color:var(--text)"><strong>CPU instances</strong></div>` +
-        cpuList.map(cpuRow).join("")
-      : "");
+  const list = prices.instances || [];
+  el.innerHTML = list.map(row).join("");
 }
 
 function update() {
   const inputs = readInputs();
-  const rates = { avgTrain: state.avgTrain, avgInf: state.avgInf, avgCpu: state.avgCpu };
+  const rates = { avgCpu: state.avgCpu };
   const sm = computeSageMaker(inputs, rates);
   const ocp = computeOpenShift(inputs);
 
-  document.getElementById("avgTrainRate").textContent = `$${state.avgTrain.toFixed(3)}/GPU-hr`;
-  document.getElementById("avgInfRate").textContent = `$${state.avgInf.toFixed(3)}/GPU-hr`;
   document.getElementById("avgCpuRate").textContent = state.avgCpu > 0
     ? `$${state.avgCpu.toFixed(4)}/vCPU-hr`
     : "—";
@@ -491,7 +368,7 @@ function update() {
   renderMonthlyChart(sm, ocp);
   renderTcoChart(sm, ocp, inputs.amortYears);
   renderSweepChart(inputs, rates, sm, ocp);
-  renderSummary(sm, ocp, inputs, rates);
+  renderSummary(sm, ocp, inputs);
 }
 
 function attachListeners() {
@@ -505,8 +382,6 @@ async function init() {
   try {
     state.prices = await loadPrices();
     const avgs = computeAverages(state.prices);
-    state.avgTrain = avgs.avgTrain;
-    state.avgInf = avgs.avgInf;
     state.avgCpu = avgs.avgCpu;
 
     document.getElementById("dataStamp").textContent =
