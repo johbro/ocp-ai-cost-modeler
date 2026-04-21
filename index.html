@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ML Workload Cost: SageMaker vs OpenShift AI</title>
-  <link rel="stylesheet" href="styles.css?v=2" />
+  <link rel="stylesheet" href="styles.css?v=3" />
 </head>
 <body>
   <header>
@@ -18,20 +18,24 @@
       <div class="panel">
         <h2>Workloads</h2>
         <p class="hint">Preprocessing, feature engineering, CPU inference, batch transform, ETL, model evaluation.</p>
-        <div class="computed">
-          <div><span>Avg SageMaker rate</span><strong id="avgCpuRate">—</strong></div>
-        </div>
         <label>
-          <span>vCPUs allocated</span>
-          <input type="number" id="cpuCount" min="0" step="1" value="16" />
+          <span>SageMaker instance type</span>
+          <select id="workloadInstance"></select>
         </label>
         <label>
-          <span>Workload hours / month</span>
-          <input type="number" id="cpuHours" min="0" max="744" step="1" value="200" />
+          <span>Number of instances</span>
+          <input type="number" id="workloadInstances" min="0" step="1" value="2" />
+        </label>
+        <label>
+          <span>Hours / month</span>
+          <input type="number" id="workloadHours" min="0" max="744" step="1" value="200" />
           <small>730 ≈ always-on endpoint.</small>
         </label>
+        <div class="computed">
+          <div><span>Selected</span><strong id="workloadSpec">—</strong></div>
+        </div>
         <details>
-          <summary>SageMaker instances in the average</summary>
+          <summary>All SageMaker instance prices in snapshot</summary>
           <div id="instanceList"></div>
         </details>
       </div>
@@ -40,6 +44,10 @@
         <h2>End-user workspaces</h2>
         <p class="hint">SageMaker Studio / notebook instances vs OpenShift AI workbenches.</p>
         <label>
+          <span>SageMaker notebook instance type</span>
+          <select id="notebookInstance"></select>
+        </label>
+        <label>
           <span>Active users (data scientists)</span>
           <input type="number" id="userCount" min="0" step="1" value="5" />
         </label>
@@ -47,14 +55,9 @@
           <span>Active notebook hours / user / month</span>
           <input type="number" id="userHours" min="0" step="1" value="120" />
         </label>
-        <label>
-          <span>SageMaker notebook $/hour (default ≈ ml.m5.xlarge)</span>
-          <input type="number" id="smNotebookRate" min="0" step="0.01" value="0.23" />
-        </label>
-        <label>
-          <span>vCPUs per notebook user (sizes the OCP cluster)</span>
-          <input type="number" id="nbVcpusPerUser" min="1" step="1" value="4" />
-        </label>
+        <div class="computed">
+          <div><span>Selected</span><strong id="notebookSpec">—</strong></div>
+        </div>
       </div>
 
       <div class="panel">
@@ -169,6 +172,6 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

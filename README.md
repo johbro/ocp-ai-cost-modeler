@@ -12,15 +12,17 @@ Four cost categories are compared per side:
 
 | Category | SageMaker | OpenShift AI |
 | --- | --- | --- |
-| **Compute** | `vCPUs × hours × avg $/vCPU-hr` — averaged across general-purpose, compute-optimized, and memory-optimized ML instance families (m5 / c5 / r5 / t3 / etc.) | Allocated share of a fixed on-prem cluster TCO (hardware amortization + RH subscriptions + power × PUE + ops overhead) |
-| **Workspaces** | Studio / notebook instance-hours per user | Allocated share of the same cluster (by vCPU demand) |
+| **Compute** | `instance_count × hours × $/hr` for the specific SageMaker instance type you pick (m5 / c5 / r5 / t3 / etc.) | Allocated share of a fixed on-prem cluster TCO (hardware amortization + RH subscriptions + power × PUE + ops overhead) |
+| **Workspaces** | `users × hours × $/hr` for the specific SageMaker notebook instance type you pick | Allocated share of the same cluster (by vCPU demand) |
 | **Storage** | S3 Standard `$/GB-month` | Amortized on-prem storage `$/TB-month` (ODF / Ceph / SAN) |
 | **Egress** | Internet out `$/GB` past free tier | Colo / transit `$/GB` |
 
 SageMaker prices come from a **dated snapshot** in
 [`data/sagemaker-prices.json`](data/sagemaker-prices.json), refreshable via
-script. Instance prices are averaged across many families rather than
-asking you to pick one SKU.
+script. Instance types are picked via dropdowns populated from the snapshot
+— one for workloads (default `ml.m5.2xlarge`, 8 vCPU) and one for notebooks
+(default `ml.m5.xlarge`, 4 vCPU). OpenShift cluster sizing derives vCPU
+demand from the selected instances (`instance.vcpus × count`).
 
 Because OpenShift's cluster cost is flat (it runs 24/7) and SageMaker
 compute is linear in hours, the two total-cost lines cross at a breakeven
@@ -115,11 +117,11 @@ scripts/refresh-sagemaker-prices.mjs Regenerates the JSON from AWS Pricing API
 - The OpenShift TCO model intentionally excludes one-off costs (initial
   networking, rack installation, staff hiring) and treats ops as a flat
   percentage. That is an approximation.
-- SageMaker compute here means the average across CPU instance families,
-  applied to whatever workload mix you declare (processing, batch
-  transform, CPU inference, notebook-adjacent compute). Serverless
+- SageMaker compute uses the specific on-demand rate of the instance type
+  you pick, applied to whatever workload shape you declare (processing,
+  batch transform, CPU inference, notebook-adjacent compute). Serverless
   Inference and Asynchronous Inference have different pricing shapes and
-  are not modeled separately.
+  are not modeled.
 - Storage modeling is **S3 Standard only** on the AWS side. Intelligent
   Tiering, Glacier, and EFS are not broken out.
 - Egress is a flat blended rate. Real AWS egress tiers (100 GB free, then

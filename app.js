@@ -4,7 +4,6 @@ const GB_PER_TB = 1000;
 
 const state = {
   prices: null,
-  avgCpu: 0,
   charts: { monthly: null, tco: null, sweep: null },
 };
 
@@ -12,17 +11,6 @@ async function loadPrices() {
   const res = await fetch("data/sagemaker-prices.json", { cache: "no-cache" });
   if (!res.ok) throw new Error(`Failed to load prices: ${res.status}`);
   return res.json();
-}
-
-function average(values) {
-  if (!values.length) return 0;
-  return values.reduce((a, b) => a + b, 0) / values.length;
-}
-
-function computeAverages(prices) {
-  const list = prices.instances || [];
-  const perVcpu = list.filter((i) => i.vcpus && i.vcpus > 0).map((i) => i.pricePerHour / i.vcpus);
-  return { avgCpu: average(perVcpu) };
 }
 
 function formatMoney(n) {
@@ -37,16 +25,36 @@ function formatMoneyFull(n) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
+function findInstance(type) {
+  return (state.prices.instances || []).find((i) => i.type === type) || null;
+}
+
+function populateDropdowns(prices) {
+  const options = (prices.instances || [])
+    .map((i) => `<option value="${i.type}">${i.type} — ${i.vcpus} vCPU — $${i.pricePerHour.toFixed(3)}/hr</option>`)
+    .join("");
+  const workload = document.getElementById("workloadInstance");
+  const notebook = document.getElementById("notebookInstance");
+  workload.innerHTML = options;
+  notebook.innerHTML = options;
+
+  const pick = (preferred) =>
+    prices.instances.find((i) => i.type === preferred) || prices.instances[0];
+  workload.value = pick("ml.m5.2xlarge").type;
+  notebook.value = pick("ml.m5.xlarge").type;
+}
+
 function readInputs() {
   const num = (id) => parseFloat(document.getElementById(id).value) || 0;
   const bool = (id) => document.getElementById(id).checked;
+  const sel = (id) => document.getElementById(id).value;
   return {
-    cpuCount: num("cpuCount"),
-    cpuHours: num("cpuHours"),
+    workloadInstance: findInstance(sel("workloadInstance")),
+    workloadInstances: num("workloadInstances"),
+    workloadHours: num("workloadHours"),
+    notebookInstance: findInstance(sel("notebookInstance")),
     userCount: num("userCount"),
     userHours: num("userHours"),
-    smNotebookRate: num("smNotebookRate"),
-    nbVcpusPerUser: Math.max(1, num("nbVcpusPerUser")),
     storageTb: num("storageTb"),
     egressTb: num("egressTb"),
     smStorageRate: num("smStorageRate"),
@@ -67,9 +75,11 @@ function readInputs() {
   };
 }
 
-function computeSageMaker(i, rates) {
-  const compute = i.cpuCount * i.cpuHours * rates.avgCpu;
-  const notebooks = i.userCount * i.userHours * i.smNotebookRate;
+function computeSageMaker(i) {
+  const workloadRate = i.workloadInstance ? i.workloadInstance.pricePerHour : 0;
+  const notebookRate = i.notebookInstance ? i.notebookInstance.pricePerHour : 0;
+  const compute = i.workloadInstances * i.workloadHours * workloadRate;
+  const notebooks = i.userCount * i.userHours * notebookRate;
   const storage = i.storageTb * GB_PER_TB * i.smStorageRate;
   const egress = i.egressTb * GB_PER_TB * i.smEgressRate;
   const total = compute + notebooks + storage + egress;
@@ -77,8 +87,12 @@ function computeSageMaker(i, rates) {
 }
 
 function computeOpenShift(i) {
-  const workloadVcpus = i.cpuCount;
-  const workbenchVcpus = i.userCount * i.nbVcpusPerUser;
+  const workloadVcpus = i.workloadInstance
+    ? i.workloadInstances * i.workloadInstance.vcpus
+    : 0;
+  const workbenchVcpus = i.notebookInstance
+    ? i.userCount * i.notebookInstance.vcpus
+    : 0;
   const totalDemand = workloadVcpus + workbenchVcpus;
 
   const autoServers = Math.max(1, Math.ceil(totalDemand / i.vcpusPerServer));
@@ -94,9 +108,8 @@ function computeOpenShift(i) {
   const clusterAnnual = hardwareAnnual + subsAnnual + powerAnnual + opsAnnual;
   const clusterMonthly = clusterAnnual / 12;
 
-  // Allocate the flat cluster cost across compute and workspaces by vCPU demand.
-  // If there's no declared demand but a cluster is defined, attribute all to compute.
-  let computeShare, workbenchShare;
+  let computeShare;
+  let workbenchShare;
   if (totalDemand > 0) {
     computeShare = workloadVcpus / totalDemand;
     workbenchShare = workbenchVcpus / totalDemand;
@@ -119,6 +132,7 @@ function computeOpenShift(i) {
 
   return {
     servers, clusterVcpus, totalDemand, undersized,
+    workloadVcpus, workbenchVcpus,
     clusterMonthly,
     compute, notebooks, storage, egress,
     monthly, annual, tco,
@@ -203,16 +217,17 @@ function renderTcoChart(sm, ocp, years) {
   });
 }
 
-function renderSweepChart(inputs, rates, sm, ocp) {
+function renderSweepChart(inputs, sm, ocp) {
   destroyChart("sweep");
   const ctx = document.getElementById("sweepChart");
-  const vcpus = inputs.cpuCount;
+  const workloadRate = inputs.workloadInstance
+    ? inputs.workloadInstances * inputs.workloadInstance.pricePerHour
+    : 0;
 
-  // Fixed costs that don't scale with workload hours.
   const smFixed = sm.notebooks + sm.storage + sm.egress;
   const ocpTotal = ocp.monthly;
 
-  const maxHours = Math.max(HOURS_PER_MONTH, inputs.cpuHours * 1.5, 100);
+  const maxHours = Math.max(HOURS_PER_MONTH, inputs.workloadHours * 1.5, 100);
   const steps = 40;
   const labels = [];
   const sageLine = [];
@@ -220,9 +235,13 @@ function renderSweepChart(inputs, rates, sm, ocp) {
   for (let s = 0; s <= steps; s++) {
     const h = (maxHours * s) / steps;
     labels.push(Math.round(h));
-    sageLine.push(smFixed + h * vcpus * rates.avgCpu);
+    sageLine.push(smFixed + h * workloadRate);
     ocpLine.push(ocpTotal);
   }
+
+  const xLabel = inputs.workloadInstance
+    ? `Workload hours per month (${inputs.workloadInstances} × ${inputs.workloadInstance.type})`
+    : "Workload hours per month";
 
   state.charts.sweep = new Chart(ctx, {
     type: "line",
@@ -245,25 +264,25 @@ function renderSweepChart(inputs, rates, sm, ocp) {
         },
       },
       scales: {
-        x: { title: { display: true, text: `Workload hours per month (at ${vcpus} vCPUs)` } },
+        x: { title: { display: true, text: xLabel } },
         y: { ticks: { callback: (v) => formatMoney(v) } },
       },
     },
   });
 
   const note = document.getElementById("breakevenNote");
-  if (vcpus === 0 || rates.avgCpu === 0) {
-    note.textContent = "Set vCPUs allocated and a SageMaker rate to see breakeven.";
+  if (workloadRate === 0) {
+    note.textContent = "Pick a workload instance type and instance count to see breakeven.";
     return;
   }
-  const breakevenHours = (ocpTotal - smFixed) / (vcpus * rates.avgCpu);
+  const breakevenHours = (ocpTotal - smFixed) / workloadRate;
   if (breakevenHours <= 0) {
     note.innerHTML = `SageMaker fixed costs already exceed OpenShift AI total — OpenShift AI wins at every workload hour count.`;
     return;
   }
   note.innerHTML =
     `Breakeven: <strong>${Math.round(breakevenHours).toLocaleString()} workload hours / month</strong> ` +
-    `at ${vcpus} vCPUs. Below that, SageMaker wins; above, OpenShift AI wins.`;
+    `at ${inputs.workloadInstances} × ${inputs.workloadInstance.type}. Below that, SageMaker wins; above, OpenShift AI wins.`;
 }
 
 function renderSummary(sm, ocp, inputs) {
@@ -323,8 +342,8 @@ function renderSummary(sm, ocp, inputs) {
         <div>
           <strong>SageMaker</strong>
           <ul>
-            <li>Compute (workload vCPU-hours): ${formatMoneyFull(sm.compute)}</li>
-            <li>Notebook workspaces: ${formatMoneyFull(sm.notebooks)}</li>
+            <li>Compute — ${inputs.workloadInstances} × ${inputs.workloadInstance ? inputs.workloadInstance.type : "?"} × ${inputs.workloadHours}h: ${formatMoneyFull(sm.compute)}</li>
+            <li>Workspaces — ${inputs.userCount} users × ${inputs.notebookInstance ? inputs.notebookInstance.type : "?"} × ${inputs.userHours}h: ${formatMoneyFull(sm.notebooks)}</li>
             <li>S3 storage: ${formatMoneyFull(sm.storage)}</li>
             <li>Data egress: ${formatMoneyFull(sm.egress)}</li>
           </ul>
@@ -339,7 +358,7 @@ function renderSummary(sm, ocp, inputs) {
             <li>Storage: ${formatMoneyFull(ocp.breakdown.storage)}</li>
             <li>Data egress: ${formatMoneyFull(ocp.breakdown.egress)}</li>
           </ul>
-          <small>Cluster cost is allocated to Compute (${formatMoneyFull(ocp.compute)}) and Workspaces (${formatMoneyFull(ocp.notebooks)}) by vCPU demand.</small>
+          <small>Cluster cost allocated to Compute (${formatMoneyFull(ocp.compute)}, ${ocp.workloadVcpus} vCPU demand) and Workspaces (${formatMoneyFull(ocp.notebooks)}, ${ocp.workbenchVcpus} vCPU demand) by share of total vCPU demand.</small>
         </div>
       </div>
     </details>
@@ -351,28 +370,33 @@ function renderInstanceList(prices) {
   const el = document.getElementById("instanceList");
   const row = (i) =>
     `<div class="row"><span>${i.type} · ${i.vcpus} vCPU</span><span>$${i.pricePerHour.toFixed(3)}/hr · $${(i.pricePerHour / i.vcpus).toFixed(4)}/vCPU-hr</span></div>`;
-  const list = prices.instances || [];
-  el.innerHTML = list.map(row).join("");
+  el.innerHTML = (prices.instances || []).map(row).join("");
+}
+
+function renderSelectedSpec(elId, inst) {
+  const el = document.getElementById(elId);
+  if (!inst) {
+    el.textContent = "—";
+    return;
+  }
+  el.textContent = `${inst.vcpus} vCPU · $${inst.pricePerHour.toFixed(3)}/hr · $${(inst.pricePerHour / inst.vcpus).toFixed(4)}/vCPU-hr`;
 }
 
 function update() {
   const inputs = readInputs();
-  const rates = { avgCpu: state.avgCpu };
-  const sm = computeSageMaker(inputs, rates);
+  const sm = computeSageMaker(inputs);
   const ocp = computeOpenShift(inputs);
 
-  document.getElementById("avgCpuRate").textContent = state.avgCpu > 0
-    ? `$${state.avgCpu.toFixed(4)}/vCPU-hr`
-    : "—";
-
+  renderSelectedSpec("workloadSpec", inputs.workloadInstance);
+  renderSelectedSpec("notebookSpec", inputs.notebookInstance);
   renderMonthlyChart(sm, ocp);
   renderTcoChart(sm, ocp, inputs.amortYears);
-  renderSweepChart(inputs, rates, sm, ocp);
+  renderSweepChart(inputs, sm, ocp);
   renderSummary(sm, ocp, inputs);
 }
 
 function attachListeners() {
-  document.querySelectorAll("input").forEach((el) => {
+  document.querySelectorAll("input, select").forEach((el) => {
     el.addEventListener("input", update);
     el.addEventListener("change", update);
   });
@@ -381,12 +405,11 @@ function attachListeners() {
 async function init() {
   try {
     state.prices = await loadPrices();
-    const avgs = computeAverages(state.prices);
-    state.avgCpu = avgs.avgCpu;
 
     document.getElementById("dataStamp").textContent =
       `SageMaker pricing snapshot: ${state.prices.lastUpdated} · ${state.prices.source}`;
 
+    populateDropdowns(state.prices);
     renderInstanceList(state.prices);
     attachListeners();
     update();
