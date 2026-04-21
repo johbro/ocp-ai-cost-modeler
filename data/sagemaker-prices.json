@@ -1,0 +1,383 @@
+{
+  "source": "AWS SageMaker on-demand list prices, us-east-1",
+  "lastUpdated": "2026-04-21",
+  "notes": "Regenerated from AWS Pricing API. Edit scripts/refresh-sagemaker-prices.mjs to adjust families or GPU metadata.",
+  "instances": {
+    "training": [
+      {
+        "type": "ml.g5.12xlarge",
+        "gpus": 4,
+        "gpuModel": "A10G",
+        "pricePerHour": 7.09
+      },
+      {
+        "type": "ml.g5.16xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 5.12
+      },
+      {
+        "type": "ml.g5.24xlarge",
+        "gpus": 4,
+        "gpuModel": "A10G",
+        "pricePerHour": 10.18
+      },
+      {
+        "type": "ml.g5.2xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 1.515
+      },
+      {
+        "type": "ml.g5.48xlarge",
+        "gpus": 8,
+        "gpuModel": "A10G",
+        "pricePerHour": 20.36
+      },
+      {
+        "type": "ml.g5.4xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 2.03
+      },
+      {
+        "type": "ml.g5.8xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 3.06
+      },
+      {
+        "type": "ml.g5.xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 1.408
+      },
+      {
+        "type": "ml.g6.12xlarge",
+        "gpus": 4,
+        "gpuModel": "L4",
+        "pricePerHour": 5.752
+      },
+      {
+        "type": "ml.g6.16xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 4.246
+      },
+      {
+        "type": "ml.g6.24xlarge",
+        "gpus": 4,
+        "gpuModel": "L4",
+        "pricePerHour": 8.344
+      },
+      {
+        "type": "ml.g6.2xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 1.222
+      },
+      {
+        "type": "ml.g6.48xlarge",
+        "gpus": 8,
+        "gpuModel": "L4",
+        "pricePerHour": 16.688
+      },
+      {
+        "type": "ml.g6.4xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 1.654
+      },
+      {
+        "type": "ml.g6.8xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 2.518
+      },
+      {
+        "type": "ml.g6.xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 1.127
+      },
+      {
+        "type": "ml.g6e.12xlarge",
+        "gpus": 4,
+        "gpuModel": "L40S",
+        "pricePerHour": 13.12
+      },
+      {
+        "type": "ml.g6e.16xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 9.47
+      },
+      {
+        "type": "ml.g6e.24xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 18.83
+      },
+      {
+        "type": "ml.g6e.2xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 2.8
+      },
+      {
+        "type": "ml.g6e.48xlarge",
+        "gpus": 8,
+        "gpuModel": "L40S",
+        "pricePerHour": 37.66
+      },
+      {
+        "type": "ml.g6e.4xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 3.76
+      },
+      {
+        "type": "ml.g6e.8xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 5.66
+      },
+      {
+        "type": "ml.g6e.xlarge",
+        "gpus": 1,
+        "gpuModel": "L40S",
+        "pricePerHour": 2.61
+      },
+      {
+        "type": "ml.p4d.24xlarge",
+        "gpus": 8,
+        "gpuModel": "A100-40GB",
+        "pricePerHour": 25.2512883
+      },
+      {
+        "type": "ml.p4de.24xlarge",
+        "gpus": 8,
+        "gpuModel": "A100-80GB",
+        "pricePerHour": 31.5641075
+      },
+      {
+        "type": "ml.p5.48xlarge",
+        "gpus": 8,
+        "gpuModel": "H100",
+        "pricePerHour": 63.296
+      },
+      {
+        "type": "ml.trn1.2xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 1.54
+      },
+      {
+        "type": "ml.trn1.32xlarge",
+        "gpus": 16,
+        "gpuModel": "Trainium",
+        "pricePerHour": 24.73
+      }
+    ],
+    "inference": [
+      {
+        "type": "ml.g5.12xlarge",
+        "gpus": 4,
+        "gpuModel": "A10G",
+        "pricePerHour": 7.09
+      },
+      {
+        "type": "ml.g5.16xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 5.12
+      },
+      {
+        "type": "ml.g5.24xlarge",
+        "gpus": 4,
+        "gpuModel": "A10G",
+        "pricePerHour": 10.18
+      },
+      {
+        "type": "ml.g5.2xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 1.515
+      },
+      {
+        "type": "ml.g5.48xlarge",
+        "gpus": 8,
+        "gpuModel": "A10G",
+        "pricePerHour": 20.36
+      },
+      {
+        "type": "ml.g5.4xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 2.03
+      },
+      {
+        "type": "ml.g5.8xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 3.06
+      },
+      {
+        "type": "ml.g5.xlarge",
+        "gpus": 1,
+        "gpuModel": "A10G",
+        "pricePerHour": 1.408
+      },
+      {
+        "type": "ml.g6.12xlarge",
+        "gpus": 4,
+        "gpuModel": "L4",
+        "pricePerHour": 5.752
+      },
+      {
+        "type": "ml.g6.16xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 4.246
+      },
+      {
+        "type": "ml.g6.24xlarge",
+        "gpus": 4,
+        "gpuModel": "L4",
+        "pricePerHour": 8.344
+      },
+      {
+        "type": "ml.g6.2xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 1.222
+      },
+      {
+        "type": "ml.g6.48xlarge",
+        "gpus": 8,
+        "gpuModel": "L4",
+        "pricePerHour": 16.688
+      },
+      {
+        "type": "ml.g6.4xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 1.654
+      },
+      {
+        "type": "ml.g6.8xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 2.518
+      },
+      {
+        "type": "ml.g6.xlarge",
+        "gpus": 1,
+        "gpuModel": "L4",
+        "pricePerHour": 1.1267
+      },
+      {
+        "type": "ml.g6e.12xlarge",
+        "gpus": 4,
+        "gpuModel": "L40S",
+        "pricePerHour": 13.1158
+      },
+      {
+        "type": "ml.g6e.16xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 9.4715
+      },
+      {
+        "type": "ml.g6e.24xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 18.832
+      },
+      {
+        "type": "ml.g6e.2xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 2.8026
+      },
+      {
+        "type": "ml.g6e.48xlarge",
+        "gpus": 8,
+        "gpuModel": "L40S",
+        "pricePerHour": 37.664
+      },
+      {
+        "type": "ml.g6e.4xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 3.7553
+      },
+      {
+        "type": "ml.g6e.8xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 5.6607
+      },
+      {
+        "type": "ml.g6e.xlarge",
+        "gpus": 1,
+        "gpuModel": "L40S",
+        "pricePerHour": 2.6054
+      },
+      {
+        "type": "ml.inf2.24xlarge",
+        "gpus": 6,
+        "gpuModel": "Inferentia2",
+        "pricePerHour": 7.79
+      },
+      {
+        "type": "ml.inf2.48xlarge",
+        "gpus": 12,
+        "gpuModel": "Inferentia2",
+        "pricePerHour": 15.58
+      },
+      {
+        "type": "ml.inf2.8xlarge",
+        "gpus": 1,
+        "gpuModel": "Inferentia2",
+        "pricePerHour": 2.36
+      },
+      {
+        "type": "ml.inf2.xlarge",
+        "gpus": 1,
+        "gpuModel": "Inferentia2",
+        "pricePerHour": 0.99
+      },
+      {
+        "type": "ml.p4d.24xlarge",
+        "gpus": 8,
+        "gpuModel": "A100-40GB",
+        "pricePerHour": 25.2512883
+      },
+      {
+        "type": "ml.p4de.24xlarge",
+        "gpus": 8,
+        "gpuModel": "A100-80GB",
+        "pricePerHour": 31.5641075
+      },
+      {
+        "type": "ml.p5.48xlarge",
+        "gpus": 8,
+        "gpuModel": "H100",
+        "pricePerHour": 63.296
+      },
+      {
+        "type": "ml.trn1.2xlarge",
+        "gpus": 1,
+        "gpuModel": "unknown",
+        "pricePerHour": 1.55
+      },
+      {
+        "type": "ml.trn1.32xlarge",
+        "gpus": 16,
+        "gpuModel": "Trainium",
+        "pricePerHour": 24.73
+      }
+    ]
+  }
+}
