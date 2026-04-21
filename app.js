@@ -58,6 +58,8 @@ function readInputs() {
     sharedPool: bool("sharedPool"),
     serverCost: num("serverCost"),
     gpusPerServer: Math.max(1, num("gpusPerServer")),
+    manualSizing: bool("manualSizing"),
+    clusterServers: Math.max(1, num("clusterServers")),
     amortYears: Math.max(1, num("amortYears")),
     ocpSubPerServer: num("ocpSubPerServer"),
     ocpAiPerGpu: num("ocpAiPerGpu"),
@@ -81,6 +83,14 @@ function readInputs() {
     cpuHours: num("cpuHours"),
     ocpCpuShared: bool("ocpCpuShared"),
     ocpCpuRate: num("ocpCpuRate"),
+    nonGpuEnabled: bool("nonGpuEnabled"),
+    nonGpuServerCost: num("nonGpuServerCost"),
+    nonGpuVcpusPerServer: Math.max(1, num("nonGpuVcpusPerServer")),
+    nonGpuManualSizing: bool("nonGpuManualSizing"),
+    nonGpuServers: Math.max(1, num("nonGpuServers")),
+    nonGpuSubPerServer: num("nonGpuSubPerServer"),
+    nonGpuKwPerServer: num("nonGpuKwPerServer"),
+    nbVcpusPerUser: Math.max(1, num("nbVcpusPerUser")),
   };
 }
 
@@ -96,6 +106,58 @@ function computeSageMaker(i, rates) {
   return { train, inference, gpuCompute, cpu, notebooks, storage, egress, total };
 }
 
+function computeNonGpuCluster(i) {
+  if (!i.nonGpuEnabled) return null;
+
+  const cpuOnNonGpu = !i.ocpCpuShared;
+  const nbOnNonGpu = !i.ocpWorkbenchShared;
+  const cpuDemand = cpuOnNonGpu ? i.cpuCount : 0;
+  const nbDemand = nbOnNonGpu ? i.userCount * i.nbVcpusPerUser : 0;
+  const totalDemand = cpuDemand + nbDemand;
+
+  const autoServers = Math.max(1, Math.ceil(totalDemand / i.nonGpuVcpusPerServer));
+  const servers = i.nonGpuManualSizing ? i.nonGpuServers : autoServers;
+  const clusterVcpus = servers * i.nonGpuVcpusPerServer;
+  const undersized = i.nonGpuManualSizing && totalDemand > clusterVcpus;
+
+  const capex = servers * i.nonGpuServerCost;
+  const hardwareAnnual = capex / i.amortYears;
+  const subsAnnual = servers * i.nonGpuSubPerServer;
+  const powerAnnual = servers * i.nonGpuKwPerServer * HOURS_PER_YEAR * i.kwhCost * i.pue;
+  const opsAnnual = capex * (i.opsPct / 100);
+  const monthly = (hardwareAnnual + subsAnnual + powerAnnual + opsAnnual) / 12;
+
+  let cpuShare = 0;
+  let nbShare = 0;
+  if (totalDemand > 0) {
+    cpuShare = cpuDemand / totalDemand;
+    nbShare = nbDemand / totalDemand;
+  } else if (cpuOnNonGpu) {
+    cpuShare = 1;
+  } else if (nbOnNonGpu) {
+    nbShare = 1;
+  } else {
+    cpuShare = 1;
+  }
+
+  return {
+    enabled: true,
+    servers,
+    clusterVcpus,
+    totalDemand,
+    undersized,
+    monthly,
+    cpuAllocation: monthly * cpuShare,
+    nbAllocation: monthly * nbShare,
+    breakdown: {
+      hardware: hardwareAnnual / 12,
+      subscriptions: subsAnnual / 12,
+      power: powerAnnual / 12,
+      ops: opsAnnual / 12,
+    },
+  };
+}
+
 function computeOpenShift(i) {
   const peakGpus = i.sharedPool
     ? Math.max(i.trainGpus, i.infGpus)
@@ -103,24 +165,37 @@ function computeOpenShift(i) {
 
   const storage = i.storageTb * i.ocpStorageRate;
   const egress = i.egressTb * GB_PER_TB * i.ocpEgressRate;
-  const notebooks = i.ocpWorkbenchShared ? 0 : i.userCount * i.ocpWorkbenchPerUser;
-  const cpu = i.ocpCpuShared ? 0 : i.cpuCount * i.cpuHours * i.ocpCpuRate;
 
-  if (peakGpus === 0) {
+  const nonGpu = computeNonGpuCluster(i);
+  let notebooks = 0;
+  if (!i.ocpWorkbenchShared) {
+    notebooks = nonGpu ? nonGpu.nbAllocation : i.userCount * i.ocpWorkbenchPerUser;
+  }
+  let cpu = 0;
+  if (!i.ocpCpuShared) {
+    cpu = nonGpu ? nonGpu.cpuAllocation : i.cpuCount * i.cpuHours * i.ocpCpuRate;
+  }
+
+  const autoServers = Math.max(1, Math.ceil(peakGpus / i.gpusPerServer));
+  const servers = i.manualSizing ? i.clusterServers : autoServers;
+  const clusterGpus = servers * i.gpusPerServer;
+  const undersized = i.manualSizing && peakGpus > clusterGpus;
+
+  if (peakGpus === 0 && !i.manualSizing) {
     const monthly = storage + egress + notebooks + cpu;
     return {
-      peakGpus: 0, servers: 0,
+      peakGpus: 0, servers: 0, clusterGpus: 0, undersized: false,
       annual: monthly * 12, monthly, tco: monthly * 12 * i.amortYears,
       effectivePerGpuHour: 0,
       gpuCompute: 0, cpu, notebooks, storage, egress,
+      nonGpu,
       breakdown: { hardware: 0, subscriptions: 0, power: 0, ops: 0, cpu, notebooks, storage, egress },
     };
   }
 
-  const servers = Math.ceil(peakGpus / i.gpusPerServer);
   const capex = servers * i.serverCost;
   const hardwareAnnual = capex / i.amortYears;
-  const subsAnnual = servers * i.ocpSubPerServer + peakGpus * i.ocpAiPerGpu;
+  const subsAnnual = servers * i.ocpSubPerServer + clusterGpus * i.ocpAiPerGpu;
   const powerAnnual = servers * i.kwPerServer * HOURS_PER_YEAR * i.kwhCost * i.pue;
   const opsAnnual = capex * (i.opsPct / 100);
 
@@ -130,14 +205,15 @@ function computeOpenShift(i) {
   const annual = monthly * 12;
   const tco = annual * i.amortYears;
 
-  const effectiveGpuHours = peakGpus * HOURS_PER_YEAR * (i.utilPct / 100);
+  const effectiveGpuHours = clusterGpus * HOURS_PER_YEAR * (i.utilPct / 100);
   const effectivePerGpuHour = effectiveGpuHours > 0 ? gpuComputeAnnual / effectiveGpuHours : 0;
 
   return {
-    peakGpus, servers,
+    peakGpus, servers, clusterGpus, undersized,
     annual, monthly, tco,
     effectivePerGpuHour,
     gpuCompute, cpu, notebooks, storage, egress,
+    nonGpu,
     breakdown: {
       hardware: hardwareAnnual / 12,
       subscriptions: subsAnnual / 12,
@@ -329,14 +405,21 @@ function renderSummary(sm, ocp, inputs, rates) {
         <div class="value">${formatMoneyFull(ocpTco)}</div>
       </div>
       <div class="summary-card">
-        <div class="label">OCP cluster size</div>
-        <div class="value">${ocp.servers} srv / ${ocp.peakGpus} GPU</div>
+        <div class="label">OCP GPU cluster${inputs.manualSizing ? " (manual)" : " (auto)"}</div>
+        <div class="value">${ocp.servers} srv / ${ocp.clusterGpus} GPU</div>
       </div>
+      ${ocp.nonGpu ? `
+      <div class="summary-card">
+        <div class="label">OCP non-GPU cluster${inputs.nonGpuManualSizing ? " (manual)" : " (auto)"}</div>
+        <div class="value">${ocp.nonGpu.servers} srv / ${ocp.nonGpu.clusterVcpus} vCPU</div>
+      </div>` : ""}
       <div class="summary-card">
         <div class="label">OCP effective $/GPU-hr @ ${inputs.utilPct}%</div>
         <div class="value">$${ocp.effectivePerGpuHour.toFixed(2)}</div>
       </div>
     </div>
+    ${ocp.undersized ? `<div class="verdict openshift"><strong>GPU cluster warning:</strong> manually sized cluster has ${ocp.clusterGpus} GPUs but workload peak needs ${ocp.peakGpus}.</div>` : ""}
+    ${ocp.nonGpu && ocp.nonGpu.undersized ? `<div class="verdict openshift"><strong>Non-GPU cluster warning:</strong> manually sized cluster has ${ocp.nonGpu.clusterVcpus} vCPU but CPU + notebook demand is ${ocp.nonGpu.totalDemand} vCPU.</div>` : ""}
     <div class="verdict ${verdictClass}">${verdictText}</div>
     <details style="margin-top: 0.75rem;">
       <summary>Monthly cost breakdown (both sides)</summary>
@@ -359,8 +442,9 @@ function renderSummary(sm, ocp, inputs, rates) {
             <li>Subscriptions (OCP + OAI): ${formatMoneyFull(ocp.breakdown.subscriptions)}</li>
             <li>Power + cooling (PUE applied): ${formatMoneyFull(ocp.breakdown.power)}</li>
             <li>Ops overhead: ${formatMoneyFull(ocp.breakdown.ops)}</li>
-            <li>CPU compute: ${formatMoneyFull(ocp.breakdown.cpu)}${inputs.ocpCpuShared ? " <em>(absorbed by cluster)</em>" : ""}</li>
-            <li>Workbench workspaces: ${formatMoneyFull(ocp.breakdown.notebooks)}${inputs.ocpWorkbenchShared ? " <em>(absorbed by cluster)</em>" : ""}</li>
+            ${ocp.nonGpu ? `<li>Non-GPU cluster total: ${formatMoneyFull(ocp.nonGpu.monthly)} <em>(hw ${formatMoneyFull(ocp.nonGpu.breakdown.hardware)} + subs ${formatMoneyFull(ocp.nonGpu.breakdown.subscriptions)} + power ${formatMoneyFull(ocp.nonGpu.breakdown.power)} + ops ${formatMoneyFull(ocp.nonGpu.breakdown.ops)})</em></li>` : ""}
+            <li>CPU compute: ${formatMoneyFull(ocp.breakdown.cpu)}${inputs.ocpCpuShared ? " <em>(absorbed by GPU cluster)</em>" : ocp.nonGpu ? " <em>(allocated from non-GPU cluster)</em>" : ""}</li>
+            <li>Workbench workspaces: ${formatMoneyFull(ocp.breakdown.notebooks)}${inputs.ocpWorkbenchShared ? " <em>(absorbed by GPU cluster)</em>" : ocp.nonGpu ? " <em>(allocated from non-GPU cluster)</em>" : ""}</li>
             <li>Storage: ${formatMoneyFull(ocp.breakdown.storage)}</li>
             <li>Data egress: ${formatMoneyFull(ocp.breakdown.egress)}</li>
           </ul>

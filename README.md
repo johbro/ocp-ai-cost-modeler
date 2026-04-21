@@ -13,8 +13,8 @@ Six cost categories are compared per side:
 | Category | SageMaker | OpenShift AI baremetal |
 | --- | --- | --- |
 | **GPU compute** | `GPUs × hours × avg $/GPU-hr` (training and inference averaged separately from list prices) | Fixed TCO: capex amortization + RH subscriptions + power × PUE + ops overhead |
-| **CPU compute** | `vCPUs × hours × avg $/vCPU-hr` for non-training use cases (processing, batch, CPU inference, ETL) | Absorbed by the main cluster by default, or dedicated `$/vCPU-hr` rate |
-| **Workspaces** | Studio / notebook instance-hours per user | Workbenches; shared with the GPU cluster by default, or `$/user/month` for dedicated nodes |
+| **CPU compute** | `vCPUs × hours × avg $/vCPU-hr` for non-training use cases (processing, batch, CPU inference, ETL) | Absorbed by the GPU cluster, **or a dedicated non-GPU cluster TCO (hardware + subscription + power + ops)**, or a simple `$/vCPU-hr` rate |
+| **Workspaces** | Studio / notebook instance-hours per user | Workbenches; shared with the GPU cluster, **or allocated from the non-GPU cluster**, or `$/user/month` for dedicated nodes |
 | **Storage** | S3 Standard `$/GB-month` | Amortized on-prem storage `$/TB-month` (ODF / Ceph / SAN) |
 | **Egress** | Internet out `$/GB` past free tier | Colo / transit `$/GB` |
 
@@ -76,11 +76,35 @@ The **"Share a single GPU pool"** checkbox controls whether training and
 inference contend for the same cluster (sized to peak) or get dedicated
 capacity (sized to sum).
 
+The **"Manually size cluster"** checkbox lets you pin the cluster to a
+specific number of servers instead of auto-sizing from the workload. Useful
+for what-if questions ("what if I buy a 4-server cluster and grow into it?"
+or "what if I underprovision by 1 server?"). If the manually sized cluster
+is smaller than the workload peak, a warning appears — the model still
+computes costs for the cluster you specified, but notes that it can't
+actually run the workload as configured. OCP AI subscriptions are billed
+against **installed** GPUs (`servers × gpusPerServer`), not workload-demand
+GPUs, matching per-license pricing.
+
 The **"absorb CPU workloads"** and **"workbenches share the main cluster"**
 checkboxes collapse those categories to $0 marginal on the OpenShift side
 (the assumption being that an 8-GPU node with 96 CPU cores already has
 capacity to spare for non-GPU work). Uncheck them to model dedicated CPU
 worker pools or dedicated notebook nodes.
+
+The **"Provision a dedicated non-GPU cluster"** checkbox in the *OpenShift
+non-GPU cluster* panel turns CPU compute and workbenches into a second,
+CPU-only OpenShift cluster with its own TCO (hardware capex + OCP
+subscription + power + ops — no OCP AI per-GPU license since there are no
+GPUs). When enabled, whichever categories aren't already shared with the
+GPU cluster get absorbed here instead of paying the per-vCPU-hr / per-user
+rates. The cluster's monthly cost is then allocated proportionally across
+the CPU and Workspaces chart categories by vCPU demand — so the bar chart
+stays an apples-to-apples compare against SageMaker.
+
+Auto-sizing picks `ceil((cpu_vcpus + notebook_users × vcpus_per_user) /
+vcpus_per_server)` servers; manual sizing lets you pin a specific count and
+warns if the cluster can't actually fit the workload.
 
 ## Deploy
 
